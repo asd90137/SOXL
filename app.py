@@ -248,7 +248,7 @@ def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -
                 curr = trade_price
                 time_str = trade_time.astimezone(et_tz).strftime("%Y-%m-%d %H:%M ET") if trade_time else "N/A"
                 return dict(curr=curr, prev=prev_price, session=session,
-                            source=f"🟢 Alpaca {session}", time_str=time_str)
+                            source=f"🟢 Alpaca", time_str=time_str)
         except ImportError:
             st.sidebar.warning("⚠️ 未安裝 alpaca-py")
         except Exception as e:
@@ -785,7 +785,7 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
     # 報價來源與時段
     source_info = soxl.get("source", "")
     time_info   = soxl.get("time_str", "")
-    st.caption(f"{source_info} {time_info}")
+    st.caption(f"{source_info} {us_session} {time_info}")
 
     st.subheader("🎯 SOXL 網格進出戰略")
     # ── 資金停泊區 UI ──
