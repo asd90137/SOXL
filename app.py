@@ -107,6 +107,27 @@ def sniper_signal(daily_pct: float) -> tuple[float, str]:
     return 0.0, "保留現金"
 
 
+def get_tw_session_label() -> str:
+    """根據台灣時間判斷台股目前交易時段"""
+    import datetime as dt_mod
+    now = datetime.now(TW_TZ)
+    t  = now.time()
+    wd = now.weekday()  # 0=Mon, 6=Sun
+    if wd >= 5:
+        return "🌙 週末休市"
+    pre_open  = dt_mod.time(8, 30)
+    open_t    = dt_mod.time(9, 0)
+    close_t   = dt_mod.time(13, 30)
+    after_t   = dt_mod.time(14, 30)   # 盤後定價交易結束
+    if pre_open <= t < open_t:
+        return "🌅 盤前"
+    if open_t <= t < close_t:
+        return "🟢 盤中"
+    if close_t <= t < after_t:
+        return "🌆 盤後定價"
+    return "🌙 休市"
+
+
 # ──────────────────────────────────────────
 # ③ 資料擷取層（帶 cache）
 # ──────────────────────────────────────────
@@ -129,7 +150,7 @@ def fetch_tw_price(ticker: str, fugle_key: str = "") -> dict:
             raw_t = q.get("lastUpdated") or q.get("lastTrade", {}).get("time")
             time_str, age_min = _parse_fugle_time(raw_t)
             return dict(curr=float(curr), prev=float(prev), source="🟢 Fugle 即時",
-                        time_str=time_str, age_min=age_min)
+                        time_str=time_str, age_min=age_min, session=get_tw_session_label())
         except ImportError:
             pass
         except Exception as e:
@@ -152,7 +173,7 @@ def fetch_tw_price(ticker: str, fugle_key: str = "") -> dict:
         except Exception:
             age_min, time_str = 999, "無法取得"
         return dict(curr=curr, prev=prev, source="🟡 yfinance fast_info",
-                    time_str=time_str, age_min=age_min)
+                    time_str=time_str, age_min=age_min, session=get_tw_session_label())
     except Exception:
         pass
 
@@ -164,9 +185,9 @@ def fetch_tw_price(ticker: str, fugle_key: str = "") -> dict:
         curr = float(closes.iloc[-1])
         prev = float(closes.iloc[-2]) if len(closes) >= 2 else curr
         return dict(curr=curr, prev=prev, source="🔴 yfinance 歷史備援",
-                    time_str="歷史資料", age_min=9999)
+                    time_str="歷史資料", age_min=9999, session=get_tw_session_label())
     except Exception:
-        return dict(curr=1.0, prev=1.0, source="❌ 完全失敗", time_str="N/A", age_min=99999)
+        return dict(curr=1.0, prev=1.0, source="❌ 完全失敗", time_str="N/A", age_min=99999, session="❓")
 
 
 def _parse_fugle_time(raw_t) -> tuple[str, float]:
@@ -411,6 +432,49 @@ def parse_soxl_grid(df_raw: pd.DataFrame) -> dict:
     return result
 
 
+def parse_cash_parking(df_raw: pd.DataFrame) -> list[dict]:
+    """
+    解析美股帳本中的「資金停泊區」（CD / T-Bill）。
+    Google Sheets 格式（獨立區塊，標題列含關鍵字）：
+      停泊類型 | 金額(USD) | 到期日 | 備註
+    回傳 list of dict，每筆含：type, amount_usd, maturity, note, days_left
+    """
+    result = []
+    if df_raw.empty:
+        return result
+
+    col_type = next((c for c in df_raw.columns if "停泊" in str(c) or "類型" in str(c) and "停" in str(c)), None)
+    col_amt  = next((c for c in df_raw.columns if "停泊" in str(c) and "金額" in str(c) or ("金額" in str(c) and "USD" in str(c))), None)
+    col_mat  = next((c for c in df_raw.columns if "到期" in str(c)), None)
+    col_note = next((c for c in df_raw.columns if "備註" in str(c) and col_type and c != col_type), None)
+
+    if col_type is None or col_amt is None:
+        return result
+
+    today = datetime.today().date()
+    for _, row in df_raw.iterrows():
+        t = str(row.get(col_type, "")).strip()
+        if t in ("", "nan", "None") or t not in ("CD", "T-Bill", "國債"):
+            continue
+        amt = to_float(row.get(col_amt, 0))
+        if amt <= 0:
+            continue
+        mat_raw = row.get(col_mat, "")
+        mat_date = None
+        days_left = None
+        try:
+            mat_date  = pd.to_datetime(mat_raw).date()
+            days_left = (mat_date - today).days
+        except Exception:
+            pass
+        note = str(row.get(col_note, "")).strip() if col_note else ""
+        result.append(dict(
+            type=t, amount_usd=amt,
+            maturity=mat_date, days_left=days_left, note=note
+        ))
+    return result
+
+
 def compute_portfolio(tw_trade: dict, us_live: dict,
                       p_tw_curr: float, p_tw_yest: float,
                       cash_twd: float, loan_twd: float,
@@ -462,16 +526,17 @@ def compute_portfolio(tw_trade: dict, us_live: dict,
 # ⑤ UI 元件層
 # ──────────────────────────────────────────
 
-def render_price_freshness(source: str, time_str: str, age_min: float):
-    """顯示報價新鮮度 caption"""
+def render_price_freshness(source: str, time_str: str, age_min: float, session: str = ""):
+    """顯示報價新鮮度 + 交易時段 caption"""
+    session_tag = f" {session}" if session else ""
     if age_min < 60:
-        st.caption(f"{source} 正常｜{time_str}（{age_min:.0f} 分鐘前）")
+        st.caption(f"{source}{session_tag} ｜ {time_str}（{age_min:.0f} 分鐘前）")
     elif age_min < 480:
-        st.caption(f"{source} 略舊｜{time_str}（{age_min/60:.1f} 小時前）")
+        st.caption(f"{source}{session_tag} ｜ {time_str}（{age_min/60:.1f} 小時前）")
     elif age_min < 9999:
-        st.caption(f"{source} 可能異常｜{time_str}（{age_min/60:.1f} 小時前）")
+        st.caption(f"{source}{session_tag} 可能異常 ｜ {time_str}（{age_min/60:.1f} 小時前）")
     else:
-        st.caption(f"{source}｜使用歷史收盤價（最後資料時間：{time_str}）")
+        st.caption(f"{source}{session_tag} ｜ 使用歷史收盤價（{time_str}）")
 
 
 def render_tab_tw(tw_trade: dict, port: dict, p_tw_curr: float, p_tw_yest: float,
@@ -480,7 +545,7 @@ def render_tab_tw(tw_trade: dict, port: dict, p_tw_curr: float, p_tw_yest: float
     """Tab 1 台股完整 UI"""
     # 報價來源 caption（放在 Tab1 內部頂端）
     if tw_price:
-        render_price_freshness(tw_price["source"], tw_price["time_str"], tw_price["age_min"])
+        render_price_freshness(tw_price["source"], tw_price["time_str"], tw_price["age_min"], tw_price.get("session", ""))
     shares = tw_trade["shares"]
     cost   = port["cost_tw_twd"]
     val    = port["val_tw_twd"]
@@ -717,7 +782,8 @@ def _render_tw_charts(tw_trade: dict, p_tw_curr: float, p_tw_yest: float):
 
 
 def render_tab_us(us_live: dict, port: dict, grid: dict,
-                  us_cash_usd: float, usd_twd: float, us_session: str = ""):
+                  us_cash_usd: float, usd_twd: float, us_session: str = "",
+                  cash_parking: list = None):
     """Tab 2 美股完整 UI"""
     soxl = us_live.get("SOXL", {})
     soxl_curr = soxl.get("curr", 0)
@@ -730,7 +796,45 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
     st.caption(f"{source_info} | {us_session} | 最後更新：{time_info}")
 
     st.subheader("🎯 SOXL 網格進出戰略")
-    st.markdown("* **🅿️ 資金停泊：** 閒置資金優先停泊於 **1、2、3 個月期美國國債**，等待大跌機會。")
+    # ── 資金停泊區 UI ──
+    parking  = cash_parking or []
+    tmf_info = us_live.get("TMF", {})
+    tmf_val  = tmf_info.get("curr", 0) * tmf_info.get("shares", 0)
+    total_parked = sum(p["amount_usd"] for p in parking) + tmf_val
+
+    with st.expander("🅿️ 資金停泊區（CD / T-Bill / 待轉換）", expanded=True):
+        if not parking and tmf_val == 0:
+            st.info("目前無 CD / T-Bill 停泊紀錄。閒置資金建議停泊於 **1～3 個月期美國國債**，等待大跌機會。")
+        else:
+            st.caption(f"總閒置資金合計：**${total_parked:,.0f} USD**（含 TMF 市值）")
+            if parking:
+                park_rows = []
+                for p in sorted(parking, key=lambda x: x["maturity"] or datetime.max.date()):
+                    days = p["days_left"]
+                    if days is None:
+                        days_str, urgency = "N/A", ""
+                    elif days <= 0:
+                        days_str, urgency = "✅ 已到期", "🔴"
+                    elif days <= 7:
+                        days_str, urgency = f"⚠️ {days} 天後到期", "🟠"
+                    else:
+                        days_str, urgency = f"{days} 天後到期", "🟡"
+                    park_rows.append({
+                        "類型": p["type"],
+                        "金額 (USD)": f"${p['amount_usd']:,.0f}",
+                        "到期日": str(p["maturity"]) if p["maturity"] else "N/A",
+                        "狀態": f"{urgency} {days_str}",
+                        "備註": p["note"],
+                    })
+                st.dataframe(pd.DataFrame(park_rows), use_container_width=True, hide_index=True)
+            if tmf_val > 0:
+                tmf_shares = tmf_info.get("shares", 0)
+                tmf_price  = tmf_info.get("curr", 0)
+                st.warning(
+                    f"🔄 **TMF 待轉換 → SOXL**\n\n"
+                    f"目前持有 {tmf_shares:,.0f} 股 × ${tmf_price:.2f} = **${tmf_val:,.0f} USD**\n\n"
+                    "建議在 SOXX 出現買入訊號時分批換倉。"
+                )
 
     # 網格指標
     g = grid
@@ -1064,6 +1168,9 @@ def main():
     # 解析 SOXL 網格
     grid = parse_soxl_grid(df_us_raw)
 
+    # 解析資金停泊區（CD / T-Bill）
+    cash_parking = parse_cash_parking(df_us_raw)
+
     # 計算資產組合
     loan_total = params["loan1"] + params["loan2"]
     port = compute_portfolio(
@@ -1082,7 +1189,7 @@ def main():
                       tw_price=tw_price)
 
     with tab2:
-        render_tab_us(us_live, port, grid, us_cash_usd, params["usd_twd"], us_session)
+        render_tab_us(us_live, port, grid, us_cash_usd, params["usd_twd"], us_session, cash_parking)
 
     with tab3:
         render_tab_lifecycle(
