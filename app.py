@@ -112,14 +112,12 @@ def sniper_signal(daily_pct: float) -> tuple[float, str]:
 # ──────────────────────────────────────────
 
 @st.cache_data(ttl=CONFIG.PRICE_TTL)
-def fetch_tw_price(ticker: str) -> dict:
+def fetch_tw_price(ticker: str, fugle_key: str = "") -> dict:
     """
-    回傳 dict:
-      curr, prev, source, time_str, age_min
+    回傳 dict: curr, prev, source, time_str, age_min
     優先 Fugle → yfinance fast_info → yfinance history
+    注意：fugle_key 從外部傳入，避免在 cache 函式內讀 st.secrets（會不穩定）
     """
-    fugle_key = st.secrets.get("FUGLE_API_KEY", "")
-
     # --- Fugle ---
     if fugle_key:
         try:
@@ -135,7 +133,7 @@ def fetch_tw_price(ticker: str) -> dict:
         except ImportError:
             pass
         except Exception as e:
-            st.sidebar.warning(f"⚠️ Fugle 失敗：{e}，改用 yfinance")
+            pass  # fallback，錯誤訊息由呼叫端顯示
 
     yf_sym = ticker + ".TW"
 
@@ -205,18 +203,16 @@ def _get_us_session_label(now_et) -> str:
 
 
 @st.cache_data(ttl=CONFIG.PRICE_TTL)
-def fetch_us_price(ticker: str) -> dict:
+def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -> dict:
     """
     回傳 dict: curr, prev, session, source, time_str
     優先 Alpaca（含盤前盤後）→ yfinance fast_info → yfinance 歷史備援
+    注意：alpaca_key/secret 從外部傳入，避免在 cache 函式內讀 st.secrets（會不穩定）
     """
     import pytz, datetime as dt_mod
     et_tz = pytz.timezone("America/New_York")
     now_et = dt_mod.datetime.now(et_tz)
     session = _get_us_session_label(now_et)
-
-    alpaca_key    = st.secrets.get("ALPACA_API_KEY", "")
-    alpaca_secret = st.secrets.get("ALPACA_SECRET_KEY", "")
 
     # ── Alpaca ──
     if alpaca_key and alpaca_secret:
@@ -479,8 +475,12 @@ def render_price_freshness(source: str, time_str: str, age_min: float):
 
 
 def render_tab_tw(tw_trade: dict, port: dict, p_tw_curr: float, p_tw_yest: float,
-                  base_m: float, loan1: float, loan2: float, cash_twd: float):
+                  base_m: float, loan1: float, loan2: float, cash_twd: float,
+                  tw_price: dict = None):
     """Tab 1 台股完整 UI"""
+    # 報價來源 caption（放在 Tab1 內部頂端）
+    if tw_price:
+        render_price_freshness(tw_price["source"], tw_price["time_str"], tw_price["age_min"])
     shares = tw_trade["shares"]
     cost   = port["cost_tw_twd"]
     val    = port["val_tw_twd"]
@@ -1019,8 +1019,18 @@ def main():
     if not st.session_state.analyzed:
         return
 
+    # ── API Keys（在 cache 函式外讀取，避免 cache 內 st.secrets 不穩定）──
+    fugle_key     = st.secrets.get("FUGLE_API_KEY", "")
+    alpaca_key    = st.secrets.get("ALPACA_API_KEY", "")
+    alpaca_secret = st.secrets.get("ALPACA_SECRET_KEY", "")
+
+    if not fugle_key:
+        st.sidebar.warning("⚠️ 未設定 FUGLE_API_KEY，台股報價將使用 yfinance")
+    if not (alpaca_key and alpaca_secret):
+        st.sidebar.warning("⚠️ 未設定 ALPACA_API_KEY/SECRET，美股報價將使用 yfinance")
+
     # ── 資料擷取 ──
-    tw_price = fetch_tw_price(CONFIG.TICKER_TW)
+    tw_price = fetch_tw_price(CONFIG.TICKER_TW, fugle_key=fugle_key)
 
     # 台股 split 還原：
     #   分割後（2026-03-23 起）Fugle/yfinance 回傳的已是低價（≤ SPLIT_THRESH），直接用。
@@ -1031,17 +1041,15 @@ def main():
     p_tw_curr = _adj_live_price(tw_price["curr"])
     p_tw_yest = _adj_live_price(tw_price["prev"])
 
-    render_price_freshness(tw_price["source"], tw_price["time_str"], tw_price["age_min"])
-
     # 解析台股交易
     tw_trade = parse_tw_trades(df_tw_raw)
 
     # 解析美股交易 + 即時報價（Alpaca 含盤前盤後）
     us_live = {}
-    us_session = ""   # 從第一個 ticker 取時段標籤
+    us_session = ""
     for t in CONFIG.US_TICKERS:
         trade = parse_us_trades(df_us_raw, t)
-        price = fetch_us_price(t)
+        price = fetch_us_price(t, alpaca_key=alpaca_key, alpaca_secret=alpaca_secret)
         if not us_session:
             us_session = price.get("session", "")
         us_live[t] = {
@@ -1070,7 +1078,8 @@ def main():
 
     with tab1:
         render_tab_tw(tw_trade, port, p_tw_curr, p_tw_yest,
-                      base_m, params["loan1"], params["loan2"], cash_twd)
+                      base_m, params["loan1"], params["loan2"], cash_twd,
+                      tw_price=tw_price)
 
     with tab2:
         render_tab_us(us_live, port, grid, us_cash_usd, params["usd_twd"], us_session)
