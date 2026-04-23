@@ -874,8 +874,10 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
     col_pie, col_info = st.columns([2, 1])
     with col_pie:
         st.write("📈 **美金資產配置比例 (USD)**")
-        labels = list(us_live.keys()) + ["美股可用現金"]
-        values = [v["curr"] * v["shares"] for v in us_live.values()] + [us_cash_usd]
+        # 加入 CD 停泊資金
+        cd_total = sum(p["amount_usd"] for p in (cash_parking or []))
+        labels = list(us_live.keys()) + ["美股可用現金", "CD停泊"]
+        values = [v["curr"] * v["shares"] for v in us_live.values()] + [us_cash_usd, cd_total]
         fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.4,
                                      texttemplate="%{label}<br>$%{value:,.0f}<br>%{percent}")])
         fig.update_layout(height=350, margin=dict(l=0, r=0, t=0, b=0))
