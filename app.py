@@ -215,7 +215,7 @@ def _get_us_session_label(now_et) -> str:
     if wd >= 5:
         return "🌙 週末休市"
     if pre[0] <= t < pre[1]:
-        return "🌅 盤前XXX"
+        return "🌅 盤前"
     if reg[0] <= t < reg[1]:
         return "☀️ 盤中"
     if post[0] <= t < post[1]:
@@ -699,7 +699,7 @@ def render_tab_tw(tw_trade: dict, port: dict, p_tw_curr: float, p_tw_yest: float
 def _render_tw_charts(tw_trade: dict, p_tw_curr: float, p_tw_yest: float):
     """台股三張戰術圖表"""
     try:
-        hist = yf.download(CONFIG.TICKER_TW_YF, period="max", progress=False)
+        hist = yf.download(CONFIG.TICKER_TW_YF, period="5y", progress=False)
         raw_close = (hist["Close"][CONFIG.TICKER_TW_YF]
                      if isinstance(hist.columns, pd.MultiIndex) else hist["Close"])
 
