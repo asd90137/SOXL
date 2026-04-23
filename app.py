@@ -1116,10 +1116,25 @@ def render_sidebar() -> dict:
 def main():
     # 這裡取代原本的 st.title(CONFIG.TITLE)
     st.markdown("""
-        <div style='text-align: center; margin-top: -30px; margin-bottom: 20px;'>
-            <h1 style='font-size: 50px; margin-bottom: 0px;'>時間複利戰情室</h1>
-            <p style='color: #888888; font-size: 20px; letter-spacing: 5px; font-weight: 300;'>
-                ─────── 長線決策大腦 ⚔️ 絕對紀律執行 ───────
+        <style>
+            /* 預設（電腦版）的樣式 */
+            .war-room-title { text-align: center; margin-top: -30px; margin-bottom: 20px; }
+            .main-title { font-size: 50px; margin-bottom: 0px; font-weight: bold; }
+            .sub-title { color: #888888; font-size: 20px; letter-spacing: 5px; font-weight: 300; margin-top: 10px; }
+            .dash { display: inline; } /* 顯示兩邊的裝飾線 */
+
+            /* 當螢幕寬度小於 768px（手機版）時觸發以下樣式 */
+            @media (max-width: 768px) {
+                .main-title { font-size: 32px !important; } /* 主標題縮小，確保能擠在同一行 */
+                .sub-title { font-size: 14px !important; letter-spacing: 2px !important; } /* 副標題縮小、字距縮小 */
+                .dash { display: none; } /* 在手機上直接隱藏長橫線，避免破壞排版 */
+            }
+        </style>
+
+        <div class="war-room-title">
+            <h1 class="main-title">時間複利戰情室</h1>
+            <p class="sub-title">
+                <span class="dash">─────── </span>長線決策大腦 ╳ 絕對紀律執行<span class="dash"> ───────</span>
             </p>
         </div>
     """, unsafe_allow_html=True)
