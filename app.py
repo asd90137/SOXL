@@ -1120,8 +1120,8 @@ def main():
         <style>
             /* 預設（電腦版）的樣式：加上 !important 強制覆蓋 Streamlit 預設設定 */
             .war-room-title { text-align: center; margin-top: -30px; margin-bottom: 20px; }
-            .main-title { font-size: 650px !important; margin-bottom: 0px !important; font-weight: bold !important; line-height: 1.2 !important; } 
-            .sub-title { color: #888888 !important; font-size: 240px !important; letter-spacing: 5px !important; font-weight: 300 !important; margin-top: 10px !important; }
+            .main-title { font-size: 100px !important; margin-bottom: 0px !important; font-weight: bold !important; line-height: 1.2 !important; } 
+            .sub-title { color: #888888 !important; font-size: 37px !important; letter-spacing: 5px !important; font-weight: 300 !important; margin-top: 10px !important; }
             .dash { display: inline !important; }
 
             /* 當螢幕寬度小於 768px（手機版）時觸發以下樣式 */
