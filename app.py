@@ -185,21 +185,96 @@ def _parse_fugle_time(raw_t) -> tuple[str, float]:
         return "未知", 0.0
 
 
+def _get_us_session_label(now_et) -> str:
+    """根據美東時間判斷目前交易時段標籤"""
+    t = now_et.time()
+    import datetime as dt_mod
+    pre  = (dt_mod.time(4, 0), dt_mod.time(9, 30))
+    reg  = (dt_mod.time(9, 30), dt_mod.time(16, 0))
+    post = (dt_mod.time(16, 0), dt_mod.time(20, 0))
+    wd = now_et.weekday()
+    if wd >= 5:
+        return "🌙 週末休市"
+    if pre[0] <= t < pre[1]:
+        return "🌅 盤前"
+    if reg[0] <= t < reg[1]:
+        return "🟢 盤中"
+    if post[0] <= t < post[1]:
+        return "🌆 盤後"
+    return "🌙 休市"
+
+
 @st.cache_data(ttl=CONFIG.PRICE_TTL)
-def fetch_us_price(ticker: str) -> tuple[float, float]:
-    """回傳 (curr, prev)，失敗回 (0, 0)"""
+def fetch_us_price(ticker: str) -> dict:
+    """
+    回傳 dict: curr, prev, session, source, time_str
+    優先 Alpaca（含盤前盤後）→ yfinance fast_info → yfinance 歷史備援
+    """
+    import pytz, datetime as dt_mod
+    et_tz = pytz.timezone("America/New_York")
+    now_et = dt_mod.datetime.now(et_tz)
+    session = _get_us_session_label(now_et)
+
+    alpaca_key    = st.secrets.get("ALPACA_API_KEY", "")
+    alpaca_secret = st.secrets.get("ALPACA_SECRET_KEY", "")
+
+    # ── Alpaca ──
+    if alpaca_key and alpaca_secret:
+        try:
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockSnapshotRequest, StockLatestQuoteRequest
+            from alpaca.data.enums import DataFeed
+
+            client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
+
+            # Snapshot → 正式收盤價 + 前日收盤
+            snap_req = StockSnapshotRequest(symbol_or_symbols=ticker, feed=DataFeed.IEX)
+            snap = client.get_stock_snapshot(snap_req)
+            s = snap.get(ticker)
+            if s:
+                reg_price  = float(s.daily_bar.close)       if s.daily_bar else 0.0
+                prev_price = float(s.previous_daily_bar.close) if s.previous_daily_bar else reg_price
+                trade_price = float(s.latest_trade.price)   if s.latest_trade else reg_price
+                trade_time  = s.latest_trade.timestamp      if s.latest_trade else None
+
+                # 盤前盤後：取 latest_quote 的 mid price 作為延伸時段參考
+                ext_price = 0.0
+                if session in ("🌅 盤前", "🌆 盤後"):
+                    try:
+                        q_req = StockLatestQuoteRequest(symbol_or_symbols=ticker, feed=DataFeed.IEX)
+                        q = client.get_stock_latest_quote(q_req).get(ticker)
+                        if q and q.ask_price and q.bid_price:
+                            ext_price = (q.ask_price + q.bid_price) / 2
+                    except Exception:
+                        pass
+
+                curr = ext_price if ext_price > 0 else trade_price
+                time_str = trade_time.astimezone(et_tz).strftime("%Y-%m-%d %H:%M ET") if trade_time else "N/A"
+                src = f"🟢 Alpaca {session}"
+                return dict(curr=curr, prev=prev_price, session=session, source=src, time_str=time_str)
+        except ImportError:
+            pass
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Alpaca 失敗：{e}，改用 yfinance")
+
+    # ── yfinance fast_info ──
     try:
         fi = yf.Ticker(ticker).fast_info
-        return float(fi.last_price), float(fi.previous_close)
+        return dict(curr=float(fi.last_price), prev=float(fi.previous_close),
+                    session=session, source="🟡 yfinance", time_str="N/A")
     except Exception:
         pass
+
+    # ── yfinance history fallback ──
     try:
         hist = yf.download(ticker, period="5d", progress=False)
         closes = (hist["Close"][ticker] if isinstance(hist.columns, pd.MultiIndex)
                   else hist["Close"]).dropna()
-        return float(closes.iloc[-1]), float(closes.iloc[-2] if len(closes) >= 2 else closes.iloc[-1])
+        curr = float(closes.iloc[-1])
+        prev = float(closes.iloc[-2] if len(closes) >= 2 else closes.iloc[-1])
+        return dict(curr=curr, prev=prev, session=session, source="🔴 yfinance 歷史備援", time_str="歷史資料")
     except Exception:
-        return 0.0, 0.0
+        return dict(curr=0.0, prev=0.0, session="❓", source="❌ 完全失敗", time_str="N/A")
 
 
 def read_gsheets(conn, url: str, **kwargs) -> pd.DataFrame:
@@ -529,8 +604,9 @@ def render_tab_tw(tw_trade: dict, port: dict, p_tw_curr: float, p_tw_yest: float
         if not buy_df.empty:
             recs = []
             for _, r in buy_df.sort_values("成交日期", ascending=False).iterrows():
-                adj_p = apply_split_adj(r["成交價格"], r["成交日期"])
-                adj_s = apply_split_adj_shares(r["庫存股數"], r["成交價格"], r["成交日期"])
+                # 帳本已全面使用分割後尺度，直接讀取，不需要 split 換算
+                adj_p = to_float(r.get("成交價格", 0))
+                adj_s = to_float(r.get("庫存股數", 0))
                 l_pnl = adj_s * p_tw_curr - r["持有成本"]
                 l_roi = l_pnl / r["持有成本"] if r["持有成本"] > 0 else 0
                 days_held = max((datetime.today() - r["成交日期"]).days, 1)
@@ -562,9 +638,9 @@ def _render_tw_charts(tw_trade: dict, p_tw_curr: float, p_tw_yest: float):
         raw_close = (hist["Close"][CONFIG.TICKER_TW_YF]
                      if isinstance(hist.columns, pd.MultiIndex) else hist["Close"])
 
-        # 統一 split 還原（向量化）
+        # yfinance 的 Close 欄已是 adjusted price（股票分割前的舊價格會自動縮小還原），
+        # 不需要再手動除以 SPLIT_RATIO，直接使用即可。
         adj = raw_close.copy()
-        adj.loc[adj.index < CONFIG.SPLIT_CUTOFF] /= CONFIG.SPLIT_RATIO
 
         min_date = tw_trade["min_date"]
         start    = min_date if pd.notnull(min_date) else pd.to_datetime("2024-01-01")
@@ -573,6 +649,7 @@ def _render_tw_charts(tw_trade: dict, p_tw_curr: float, p_tw_yest: float):
         if rp.dropna().empty:
             return
 
+        # 帳本已全面使用分割後尺度（低股價 + 多股數），yfinance adjusted close 也是同一尺度，直接相除即可。
         avg_cost = tw_trade["cost"] / tw_trade["shares"] if tw_trade["shares"] > 0 else 0
 
         # A. 價格走勢
@@ -618,6 +695,7 @@ def _render_tw_charts(tw_trade: dict, p_tw_curr: float, p_tw_yest: float):
         buy_df = tw_trade.get("raw_buys", pd.DataFrame())
         if not buy_df.empty:
             th = buy_df.groupby("成交日期")[["庫存股數", "持有成本"]].sum().reindex(rp.index).fillna(0)
+            # 帳本已是分割後多股數，與 adjusted price 同尺度，直接 cumsum 即可。
             ds = th["庫存股數"].cumsum()
             dc = th["持有成本"].cumsum()
             dp = np.where(dc > 0, (ds * rp - dc) / dc * 100, 0)
@@ -639,12 +717,17 @@ def _render_tw_charts(tw_trade: dict, p_tw_curr: float, p_tw_yest: float):
 
 
 def render_tab_us(us_live: dict, port: dict, grid: dict,
-                  us_cash_usd: float, usd_twd: float):
+                  us_cash_usd: float, usd_twd: float, us_session: str = ""):
     """Tab 2 美股完整 UI"""
     soxl = us_live.get("SOXL", {})
     soxl_curr = soxl.get("curr", 0)
     soxl_yest = soxl.get("yest", 0)
     soxl_daily_pct = (soxl_curr / soxl_yest - 1) * 100 if soxl_yest > 0 else 0
+
+    # 報價來源與時段
+    source_info = soxl.get("source", "")
+    time_info   = soxl.get("time_str", "")
+    st.caption(f"{source_info} | {us_session} | 最後更新：{time_info}")
 
     st.subheader("🎯 SOXL 網格進出戰略")
     st.markdown("* **🅿️ 資金停泊：** 閒置資金優先停泊於 **1、2、3 個月期美國國債**，等待大跌機會。")
@@ -716,8 +799,10 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
         today_p = (info["curr"] - info["yest"]) * info["shares"]
         total_p = (info["curr"] - avg) * info["shares"]
         pct_d   = (info["curr"] / info["yest"] - 1) * 100 if info["yest"] > 0 else 0
+        session_label = info.get("session", "")
         rows.append({
             "代號": t,
+            "時段": session_label,
             "股數": f"{info['shares']:,.0f}",
             "均價": f"${avg:.2f}",
             "成本": f"${info['cost']:,.0f}",
@@ -951,12 +1036,22 @@ def main():
     # 解析台股交易
     tw_trade = parse_tw_trades(df_tw_raw)
 
-    # 解析美股交易 + 即時報價
+    # 解析美股交易 + 即時報價（Alpaca 含盤前盤後）
     us_live = {}
+    us_session = ""   # 從第一個 ticker 取時段標籤
     for t in CONFIG.US_TICKERS:
         trade = parse_us_trades(df_us_raw, t)
-        curr, yest = fetch_us_price(t)
-        us_live[t] = {**trade, "curr": curr, "yest": yest}
+        price = fetch_us_price(t)
+        if not us_session:
+            us_session = price.get("session", "")
+        us_live[t] = {
+            **trade,
+            "curr":     price["curr"],
+            "yest":     price["prev"],
+            "session":  price["session"],
+            "source":   price["source"],
+            "time_str": price["time_str"],
+        }
 
     # 解析 SOXL 網格
     grid = parse_soxl_grid(df_us_raw)
@@ -978,7 +1073,7 @@ def main():
                       base_m, params["loan1"], params["loan2"], cash_twd)
 
     with tab2:
-        render_tab_us(us_live, port, grid, us_cash_usd, params["usd_twd"])
+        render_tab_us(us_live, port, grid, us_cash_usd, params["usd_twd"], us_session)
 
     with tab3:
         render_tab_lifecycle(
