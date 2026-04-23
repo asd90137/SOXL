@@ -225,11 +225,6 @@ def _get_us_session_label(now_et) -> str:
 
 @st.cache_data(ttl=CONFIG.PRICE_TTL)
 def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -> dict:
-    """
-    回傳 dict: curr, prev, session, source, time_str
-    優先 Alpaca（含盤前盤後）→ yfinance fast_info → yfinance 歷史備援
-    注意：alpaca_key/secret 從外部傳入，避免在 cache 函式內讀 st.secrets（會不穩定）
-    """
     import pytz, datetime as dt_mod
     et_tz = pytz.timezone("America/New_York")
     now_et = dt_mod.datetime.now(et_tz)
@@ -243,22 +238,19 @@ def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -
             from alpaca.data.enums import DataFeed
 
             client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
-
-            # Snapshot → 正式收盤價 + 前日收盤
-            snap_req = StockSnapshotRequest(symbol_or_symbols=ticker, feed=DataFeed.IEX)
+            snap_req = StockSnapshotRequest(symbol_or_symbols=ticker, feed=DataFeed.SIP)  # ✅ SIP 才支援盤前盤後
             snap = client.get_stock_snapshot(snap_req)
             s = snap.get(ticker)
             if s:
-                reg_price  = float(s.daily_bar.close)       if s.daily_bar else 0.0
-                prev_price = float(s.previous_daily_bar.close) if s.previous_daily_bar else reg_price
-                trade_price = float(s.latest_trade.price)   if s.latest_trade else reg_price
-                trade_time  = s.latest_trade.timestamp      if s.latest_trade else None
+                reg_price   = float(s.daily_bar.close) if s.daily_bar else 0.0
+                prev_price  = float(s.previous_daily_bar.close) if s.previous_daily_bar else reg_price
+                trade_price = float(s.latest_trade.price) if s.latest_trade else reg_price
+                trade_time  = s.latest_trade.timestamp if s.latest_trade else None
 
-                # 盤前盤後：取 latest_quote 的 mid price 作為延伸時段參考
                 ext_price = 0.0
                 if session in ("🌅 盤前", "🌆 盤後"):
                     try:
-                        q_req = StockLatestQuoteRequest(symbol_or_symbols=ticker, feed=DataFeed.IEX)
+                        q_req = StockLatestQuoteRequest(symbol_or_symbols=ticker, feed=DataFeed.SIP)  # ✅ SIP
                         q = client.get_stock_latest_quote(q_req).get(ticker)
                         if q and q.ask_price and q.bid_price:
                             ext_price = (q.ask_price + q.bid_price) / 2
@@ -267,18 +259,25 @@ def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -
 
                 curr = ext_price if ext_price > 0 else trade_price
                 time_str = trade_time.astimezone(et_tz).strftime("%Y-%m-%d %H:%M ET") if trade_time else "N/A"
-                src = f"🟢 Alpaca {session}"
-                return dict(curr=curr, prev=prev_price, session=session, source=src, time_str=time_str)
+                return dict(curr=curr, prev=prev_price, session=session,
+                            source=f"🟢 Alpaca {session}", time_str=time_str)
         except ImportError:
-            pass
+            st.sidebar.warning("⚠️ 未安裝 alpaca-trade-api，改用 yfinance")
         except Exception as e:
             st.sidebar.warning(f"⚠️ Alpaca 失敗：{e}，改用 yfinance")
 
     # ── yfinance fast_info ──
     try:
         fi = yf.Ticker(ticker).fast_info
+        try:
+            ts = fi.regular_market_time
+            dt = (dt_mod.datetime.fromtimestamp(ts, tz=et_tz) if isinstance(ts, (int, float))
+                  else ts.astimezone(et_tz))
+            yf_time_str = dt.strftime("%Y-%m-%d %H:%M ET")
+        except Exception:
+            yf_time_str = "無法取得"
         return dict(curr=float(fi.last_price), prev=float(fi.previous_close),
-                    session=session, source="🟡 yfinance", time_str=time_str)
+                    session=session, source="🟡 yfinance", time_str=yf_time_str)
     except Exception:
         pass
 
@@ -289,9 +288,11 @@ def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -
                   else hist["Close"]).dropna()
         curr = float(closes.iloc[-1])
         prev = float(closes.iloc[-2] if len(closes) >= 2 else closes.iloc[-1])
-        return dict(curr=curr, prev=prev, session=session, source="🔴 yfinance 歷史備援", time_str="歷史資料")
+        return dict(curr=curr, prev=prev, session=session,
+                    source="🔴 yfinance 歷史備援", time_str="歷史資料")
     except Exception:
-        return dict(curr=0.0, prev=0.0, session="❓", source="❌ 完全失敗", time_str="N/A")
+        return dict(curr=0.0, prev=0.0, session="❓",
+                    source="❌ 完全失敗", time_str="N/A")
 
 
 def read_gsheets(conn, url: str, **kwargs) -> pd.DataFrame:
