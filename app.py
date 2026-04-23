@@ -278,7 +278,7 @@ def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -
     try:
         fi = yf.Ticker(ticker).fast_info
         return dict(curr=float(fi.last_price), prev=float(fi.previous_close),
-                    session=session, source="🟡 yfinance", time_str="N/A")
+                    session=session, source="🟡 yfinance", time_str=time_str)
     except Exception:
         pass
 
