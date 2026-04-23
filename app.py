@@ -436,7 +436,7 @@ def parse_cash_parking(df_raw: pd.DataFrame) -> list[dict]:
         return result
 
     col_type = next((c for c in df_raw.columns if "停泊" in str(c) or "類型" in str(c) and "停" in str(c)), None)
-    col_amt  = next((c for c in df_raw.columns if "停泊" in str(c) and "金額" in str(c) or ("金額" in str(c) and "USD" in str(c))), None)
+    col_amt  = next((c for c in df_raw.columns if "停泊" in str(c) and "金額" in str(c) or ("金額" in str(c))), None)
     col_mat  = next((c for c in df_raw.columns if "到期" in str(c)), None)
     col_note = next((c for c in df_raw.columns if "備註" in str(c) and col_type and c != col_type), None)
 
