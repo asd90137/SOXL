@@ -785,7 +785,7 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
     # 報價來源與時段
     source_info = soxl.get("source", "")
     time_info   = soxl.get("time_str", "")
-    st.caption(f"{source_info} {us_session} {time_info}")
+    st.caption(f"{source_info} {time_info}")
 
     st.subheader("🎯 SOXL 網格進出戰略")
     # ── 資金停泊區 UI ──
