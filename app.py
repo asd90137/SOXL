@@ -122,7 +122,7 @@ def get_tw_session_label() -> str:
     if pre_open <= t < open_t:
         return "🌅 盤前"
     if open_t <= t < close_t:
-        return "🟢 盤中"
+        return "☀️ 盤中"
     if close_t <= t < after_t:
         return "🌆 盤後定價"
     return "🌙 休市"
@@ -149,7 +149,7 @@ def fetch_tw_price(ticker: str, fugle_key: str = "") -> dict:
             prev = q.get("referencePrice", curr)
             raw_t = q.get("lastUpdated") or q.get("lastTrade", {}).get("time")
             time_str, age_min = _parse_fugle_time(raw_t)
-            return dict(curr=float(curr), prev=float(prev), source="🟢 Fugle 即時",
+            return dict(curr=float(curr), prev=float(prev), source="🟢 Fugle",
                         time_str=time_str, age_min=age_min, session=get_tw_session_label())
         except ImportError:
             pass
@@ -217,7 +217,7 @@ def _get_us_session_label(now_et) -> str:
     if pre[0] <= t < pre[1]:
         return "🌅 盤前XXX"
     if reg[0] <= t < reg[1]:
-        return "🟢 盤中"
+        return "☀️ 盤中"
     if post[0] <= t < post[1]:
         return "🌆 盤後"
     return "🌙 休市"
