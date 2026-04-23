@@ -1119,14 +1119,14 @@ def main():
         <style>
             /* 預設（電腦版）的樣式 */
             .war-room-title { text-align: center; margin-top: -30px; margin-bottom: 20px; }
-            .main-title { font-size: 50px; margin-bottom: 0px; font-weight: bold; }
-            .sub-title { color: #888888; font-size: 20px; letter-spacing: 5px; font-weight: 300; margin-top: 10px; }
+            .main-title { font-size: 65px; margin-bottom: 0px; font-weight: bold; }
+            .sub-title { color: #888888; font-size: 24px; letter-spacing: 5px; font-weight: 300; margin-top: 10px; }
             .dash { display: inline; } /* 顯示兩邊的裝飾線 */
 
             /* 當螢幕寬度小於 768px（手機版）時觸發以下樣式 */
             @media (max-width: 768px) {
-                .main-title { font-size: 32px !important; } /* 主標題縮小，確保能擠在同一行 */
-                .sub-title { font-size: 14px !important; letter-spacing: 2px !important; } /* 副標題縮小、字距縮小 */
+                .main-title { font-size: 42px !important; } /* 主標題縮小，確保能擠在同一行 */
+                .sub-title { font-size: 16px !important; letter-spacing: 2px !important; } /* 副標題縮小、字距縮小 */
                 .dash { display: none; } /* 在手機上直接隱藏長橫線，避免破壞排版 */
             }
         </style>
