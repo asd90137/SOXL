@@ -7,21 +7,16 @@ from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import calendar
 import pytz
+import streamlit as st
+# ... (其他 import) ...
 
 # ==========================================
-# 賴賴投資戰情室 V11.2 - 模組化整理版 + 南亞科鎖利(含今日損益)
-# ==========================================
-# 整理重點：
-#  - 所有常數集中於 CONFIG
-#  - 資料層 / 計算層 / 顯示層三分離
-#  - Split 調整邏輯單一化（只在 apply_split_adj() 處理）
-#  - SOXL 網格解析獨立為 parse_soxl_grid()
-#  - 錯誤處理統一用 safe_read() wrapper
-#  - 命名規則統一（*_twd / *_usd 後綴標示幣別）
-#  - 新增：第四頁面 南亞科(2408) 員工股鎖利與避險戰情，加入今日報酬
+# 時間複利戰情室 V11.0 - 模組化整理版
+# 長線決策大腦 ╳ 絕對紀律執行 (開發者：賴賴)
 # ==========================================
 
-st.set_page_config(page_title="戰情室", page_icon="💵", layout="wide")
+# ① 設定分頁標題
+st.set_page_config(page_title="時間複利戰情室 | 賴賴", page_icon="📈", layout="wide")
 
 # ──────────────────────────────────────────
 # ① 全域常數（CONFIG）
@@ -1119,7 +1114,16 @@ def render_sidebar() -> dict:
 # ──────────────────────────────────────────
 
 def main():
-    st.title(CONFIG.TITLE)
+    # 這裡取代原本的 st.title(CONFIG.TITLE)
+    st.markdown("""
+        <div style='text-align: center; margin-top: -30px; margin-bottom: 20px;'>
+            <h1 style='font-size: 50px; margin-bottom: 0px;'>時間複利戰情室</h1>
+            <p style='color: #888888; font-size: 20px; letter-spacing: 5px; font-weight: 300;'>
+                ─────── 長線決策大腦 ╳ 絕對紀律執行 ───────
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+    st.divider()
 
     if "analyzed" not in st.session_state:
         st.session_state.analyzed = False
