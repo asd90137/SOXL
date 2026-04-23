@@ -1126,8 +1126,8 @@ def main():
 
             /* 當螢幕寬度小於 768px（手機版）時觸發以下樣式 */
             @media (max-width: 768px) {
-                .main-title { font-size: 42px !important; } 
-                .sub-title { font-size: 16px !important; letter-spacing: 2px !important; } 
+                .main-title { font-size: 50px !important; } 
+                .sub-title { font-size: 18px !important; letter-spacing: 2px !important; } 
                 .dash { display: none !important; }
             }
         </style>
