@@ -1119,7 +1119,7 @@ def main():
         <div style='text-align: center; margin-top: -30px; margin-bottom: 20px;'>
             <h1 style='font-size: 50px; margin-bottom: 0px;'>時間複利戰情室</h1>
             <p style='color: #888888; font-size: 20px; letter-spacing: 5px; font-weight: 300;'>
-                ─────── 長線決策大腦 ╳ 絕對紀律執行 ───────
+                ─────── 長線決策大腦 ⚔️ 絕對紀律執行 ───────
             </p>
         </div>
     """, unsafe_allow_html=True)
