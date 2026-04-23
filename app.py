@@ -952,7 +952,7 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years: int, target_k: flo
 | 戰區 | 曝險金額 (台幣) | 淨資產 (FC) | 獨立曝險度 |
 | :--- | :--- | :--- | :--- |
 | 💰 台股 | NT$ {exp_tw/10000:,.0f} 萬 | NT$ {fc_tw/10000:,.0f} 萬 | **{pct_tw:.1f}%** |
-| 💵 美股 | NT\$ {exp_us/10000:,.0f} 萬 :green[(US\$ {port['exp_us_usd']:,.0f})] | NT\$ {fc_us/10000:,.0f} 萬 :green[(US\$ {port['fc_us_usd']:,.0f})] | **{pct_us:.1f}%** |
+| 💵 美股 | NT$ {exp_us_twd/10000:,.0f} 萬<br/><span style="font-size: 0.85em; color: green;"> {exp_us_usd:,.0f}</span> | NT$ {(FC_US_USD*usd_twd)/10000:,.0f} 萬<br/><span style="font-size: 0.85em; color: gray;"> {FC_US_USD:,.0f}</span> | **{pct_us:.1f}%** |
 | 🔥 綜合 | **NT$ {exp_tot/10000:,.0f} 萬** | **NT$ {fc_total/10000:,.0f} 萬** | **{pct_tot:.1f}%** |
 """, unsafe_allow_html=True)
 
