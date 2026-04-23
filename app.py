@@ -1143,6 +1143,10 @@ def main():
     # 解析美股交易 + 即時報價（Alpaca 含盤前盤後）
     us_live = {}
     us_session = ""
+    import pytz, datetime as dt_mod
+    et_tz = pytz.timezone("America/New_York")
+    us_session = _get_us_session_label(dt_mod.datetime.now(et_tz))
+
     for t in CONFIG.US_TICKERS:
         trade = parse_us_trades(df_us_raw, t)
         price = fetch_us_price(t, alpaca_key=alpaca_key, alpaca_secret=alpaca_secret)
