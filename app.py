@@ -884,7 +884,7 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
         st.plotly_chart(fig, use_container_width=True)
     with col_info:
         fc_us = port["fc_us_usd"]
-        st.info(f"💡 **美股獨立淨資產 (FC_US)**\n\nUS$ {fc_us:,.0f}\n\n*美股市值 + 美股現金*")
+        st.info(f"💡 **美股獨立淨資產 (FC_US)**\n\nUS$ {fc_us:,.0f}\n\n*美股市值 + 美股現金 + CD停泊*")
 
     # 個股明細
     st.subheader("📦 個股明細")
