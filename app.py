@@ -234,48 +234,38 @@ def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -
     if alpaca_key and alpaca_secret:
         try:
             from alpaca.data.historical import StockHistoricalDataClient
-            from alpaca.data.requests import StockSnapshotRequest, StockLatestQuoteRequest
+            from alpaca.data.requests import StockSnapshotRequest
             from alpaca.data.enums import DataFeed
 
             client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
-            snap_req = StockSnapshotRequest(symbol_or_symbols=ticker, feed=DataFeed.SIP)  # ✅ SIP 才支援盤前盤後
+            snap_req = StockSnapshotRequest(symbol_or_symbols=ticker, feed=DataFeed.IEX)
             snap = client.get_stock_snapshot(snap_req)
             s = snap.get(ticker)
             if s:
-                reg_price   = float(s.daily_bar.close) if s.daily_bar else 0.0
-                prev_price  = float(s.previous_daily_bar.close) if s.previous_daily_bar else reg_price
-                trade_price = float(s.latest_trade.price) if s.latest_trade else reg_price
+                prev_price  = float(s.previous_daily_bar.close) if s.previous_daily_bar else 0.0
+                trade_price = float(s.latest_trade.price) if s.latest_trade else 0.0
                 trade_time  = s.latest_trade.timestamp if s.latest_trade else None
-
-                ext_price = 0.0
-                if session in ("🌅 盤前", "🌆 盤後"):
-                    try:
-                        q_req = StockLatestQuoteRequest(symbol_or_symbols=ticker, feed=DataFeed.SIP)  # ✅ SIP
-                        q = client.get_stock_latest_quote(q_req).get(ticker)
-                        if q and q.ask_price and q.bid_price:
-                            ext_price = (q.ask_price + q.bid_price) / 2
-                    except Exception:
-                        pass
-
-                curr = ext_price if ext_price > 0 else trade_price
+                curr = trade_price
                 time_str = trade_time.astimezone(et_tz).strftime("%Y-%m-%d %H:%M ET") if trade_time else "N/A"
                 return dict(curr=curr, prev=prev_price, session=session,
                             source=f"🟢 Alpaca {session}", time_str=time_str)
         except ImportError:
-            st.sidebar.warning("⚠️ 未安裝 alpaca-trade-api，改用 yfinance")
+            st.sidebar.warning("⚠️ 未安裝 alpaca-py")
         except Exception as e:
             st.sidebar.warning(f"⚠️ Alpaca 失敗：{e}，改用 yfinance")
 
     # ── yfinance fast_info ──
     try:
+        import datetime as dt_mod
         fi = yf.Ticker(ticker).fast_info
         try:
             ts = fi.regular_market_time
+            et_tz = pytz.timezone("America/New_York")
             dt = (dt_mod.datetime.fromtimestamp(ts, tz=et_tz) if isinstance(ts, (int, float))
                   else ts.astimezone(et_tz))
             yf_time_str = dt.strftime("%Y-%m-%d %H:%M ET")
         except Exception:
-            yf_time_str = "無法取得"
+            yf_time_str = "最後收盤價"
         return dict(curr=float(fi.last_price), prev=float(fi.previous_close),
                     session=session, source="🟡 yfinance", time_str=yf_time_str)
     except Exception:
@@ -293,6 +283,7 @@ def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -
     except Exception:
         return dict(curr=0.0, prev=0.0, session="❓",
                     source="❌ 完全失敗", time_str="N/A")
+
 
 
 def read_gsheets(conn, url: str, **kwargs) -> pd.DataFrame:
