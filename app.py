@@ -9,7 +9,7 @@ import calendar
 import pytz
 
 # ==========================================
-# 賴賴投資戰情室 V11.1 - 模組化整理版 + 南亞科鎖利
+# 賴賴投資戰情室 V11.2 - 模組化整理版 + 南亞科鎖利(含今日損益)
 # ==========================================
 # 整理重點：
 #  - 所有常數集中於 CONFIG
@@ -18,7 +18,7 @@ import pytz
 #  - SOXL 網格解析獨立為 parse_soxl_grid()
 #  - 錯誤處理統一用 safe_read() wrapper
 #  - 命名規則統一（*_twd / *_usd 後綴標示幣別）
-#  - 新增：第四頁面 南亞科(2408) 員工股鎖利與避險戰情
+#  - 新增：第四頁面 南亞科(2408) 員工股鎖利與避險戰情，加入今日報酬
 # ==========================================
 
 st.set_page_config(page_title="賴賴終極戰情室", page_icon="💰", layout="wide")
@@ -27,7 +27,7 @@ st.set_page_config(page_title="賴賴終極戰情室", page_icon="💰", layout=
 # ① 全域常數（CONFIG）
 # ──────────────────────────────────────────
 class CONFIG:
-    TITLE          = "🛡️ 賴賴投資戰情室 V11.1"
+    TITLE          = "🛡️ 賴賴投資戰情室 V11.2"
     TICKER_TW      = "00631L"
     TICKER_TW_YF   = "00631L.TW"
     SPLIT_CUTOFF   = pd.to_datetime("2026-03-23")
@@ -1007,12 +1007,14 @@ def render_tab_nanya(price_info: dict):
     st.divider()
     
     # ── 頂部指標 ──
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("目前現貨價", f"{p_curr:.2f}", f"今日 {daily_pct:+.2f}%")
-    c2.metric("總市值 (32 張)", f"{total_val/10000:,.1f} 萬")
-    c3.metric("未實現損益 (現貨)", f"{unrealized/10000:+,.1f} 萬")
-    c4.metric("避險虧損 (已實現)", f"{HEDGE_LOSS/10000:,.1f} 萬")
-    c5.metric("實質總淨利", f"{net_profit/10000:+,.1f} 萬")
+    # 新增今日報酬，將欄位改為 6 欄顯示
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("目前現貨價", f"{p_curr:.2f}")
+    c2.metric("今日報酬", f"{daily_pnl:+,.0f} 元", f"{daily_pct:+.2f}%")
+    c3.metric("總市值 (32 張)", f"{total_val/10000:,.1f} 萬")
+    c4.metric("未實現損益 (現貨)", f"{unrealized/10000:+,.1f} 萬")
+    c5.metric("避險虧損 (已實現)", f"{HEDGE_LOSS/10000:,.1f} 萬")
+    c6.metric("實質總淨利", f"{net_profit/10000:+,.1f} 萬")
     
     st.divider()
     
@@ -1263,7 +1265,7 @@ def main():
     with tab4:
         render_tab_nanya(nanya_price)
 
-    st.caption("📱 V11.1 模組化整理版 | 新增南亞科獨立戰情頁面 | 資料 / 計算 / UI 三層分離")
+    st.caption("📱 V11.2 模組化整理版 | 新增南亞科獨立戰情頁面 | 資料 / 計算 / UI 三層分離")
 
 
 if __name__ == "__main__" or True:
