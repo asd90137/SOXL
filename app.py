@@ -1115,19 +1115,20 @@ def render_sidebar() -> dict:
 
 def main():
     # 這裡取代原本的 st.title(CONFIG.TITLE)
+    # ② 顯示戰情室大標題 (強制放大版)
     st.markdown("""
         <style>
-            /* 預設（電腦版）的樣式 */
+            /* 預設（電腦版）的樣式：加上 !important 強制覆蓋 Streamlit 預設設定 */
             .war-room-title { text-align: center; margin-top: -30px; margin-bottom: 20px; }
-            .main-title { font-size: 65px; margin-bottom: 0px; font-weight: bold; }
-            .sub-title { color: #888888; font-size: 24px; letter-spacing: 5px; font-weight: 300; margin-top: 10px; }
-            .dash { display: inline; } /* 顯示兩邊的裝飾線 */
+            .main-title { font-size: 65px !important; margin-bottom: 0px !important; font-weight: bold !important; line-height: 1.2 !important; } 
+            .sub-title { color: #888888 !important; font-size: 24px !important; letter-spacing: 5px !important; font-weight: 300 !important; margin-top: 10px !important; }
+            .dash { display: inline !important; }
 
             /* 當螢幕寬度小於 768px（手機版）時觸發以下樣式 */
             @media (max-width: 768px) {
-                .main-title { font-size: 42px !important; } /* 主標題縮小，確保能擠在同一行 */
-                .sub-title { font-size: 16px !important; letter-spacing: 2px !important; } /* 副標題縮小、字距縮小 */
-                .dash { display: none; } /* 在手機上直接隱藏長橫線，避免破壞排版 */
+                .main-title { font-size: 42px !important; } 
+                .sub-title { font-size: 16px !important; letter-spacing: 2px !important; } 
+                .dash { display: none !important; }
             }
         </style>
 
