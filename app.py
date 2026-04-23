@@ -215,7 +215,7 @@ def _get_us_session_label(now_et) -> str:
     if wd >= 5:
         return "🌙 週末休市"
     if pre[0] <= t < pre[1]:
-        return "🌅 盤前"
+        return "🌅 盤前XXX"
     if reg[0] <= t < reg[1]:
         return "🟢 盤中"
     if post[0] <= t < post[1]:
