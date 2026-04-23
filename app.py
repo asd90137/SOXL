@@ -470,7 +470,8 @@ def parse_cash_parking(df_raw: pd.DataFrame) -> list[dict]:
 def compute_portfolio(tw_trade: dict, us_live: dict,
                       p_tw_curr: float, p_tw_yest: float,
                       cash_twd: float, loan_twd: float,
-                      us_cash_usd: float, usd_twd: float) -> dict:
+                      us_cash_usd: float, usd_twd: float,
+                      cash_parking: list = None) -> dict:
     """
     彙整雙帳戶資產、曝險度。
     所有台幣金額後綴 _twd，美元後綴 _usd。
@@ -478,7 +479,7 @@ def compute_portfolio(tw_trade: dict, us_live: dict,
     # --- 台股 ---
     val_tw_twd  = tw_trade["shares"] * p_tw_curr
     cost_tw_twd = tw_trade["cost"]
-    exp_tw_twd  = val_tw_twd * 2                           # 00631L 2x 槓桿
+    exp_tw_twd  = val_tw_twd * 2
     fc_tw_twd   = val_tw_twd + cash_twd - loan_twd
     pct_tw      = (exp_tw_twd / fc_tw_twd * 100) if fc_tw_twd > 0 else 0
     daily_pnl_twd = (p_tw_curr - p_tw_yest) * tw_trade["shares"]
@@ -491,7 +492,8 @@ def compute_portfolio(tw_trade: dict, us_live: dict,
         v["shares"] * v["curr"] * CONFIG.LEVERAGE_MAP.get(t, 1)
         for t, v in us_live.items()
     )
-    fc_us_usd   = val_us_usd + us_cash_usd
+    cd_total_usd = sum(p["amount_usd"] for p in (cash_parking or []))
+    fc_us_usd   = val_us_usd + us_cash_usd + cd_total_usd
     pct_us      = (exp_us_usd / fc_us_usd * 100) if fc_us_usd > 0 else 0
     daily_pnl_usd = sum((v["curr"] - v["yest"]) * v["shares"] for v in us_live.values())
     us_roi      = (val_us_usd / cost_us_usd - 1) if cost_us_usd > 0 else 0
@@ -512,7 +514,6 @@ def compute_portfolio(tw_trade: dict, us_live: dict,
 
         fc_total_twd=fc_total_twd, exp_total_twd=exp_total_twd, pct_total=pct_total,
     )
-
 
 # ──────────────────────────────────────────
 # ⑤ UI 元件層
@@ -1172,10 +1173,11 @@ def main():
     # 計算資產組合
     loan_total = params["loan1"] + params["loan2"]
     port = compute_portfolio(
-        tw_trade, us_live,
-        p_tw_curr, p_tw_yest,
-        cash_twd, loan_total,
-        us_cash_usd, params["usd_twd"],
+    tw_trade, us_live,
+    p_tw_curr, p_tw_yest,
+    cash_twd, loan_total,
+    us_cash_usd, params["usd_twd"],
+    cash_parking=cash_parking,
     )
 
     # ── 渲染三個 Tab ──
