@@ -1,5 +1,3 @@
-但我的 alpaca 沒有盤前盤後
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
