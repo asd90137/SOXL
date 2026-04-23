@@ -5,3 +5,4 @@ numpy
 plotly
 st-gsheets-connection
 fugle-marketdata
+alpaca-py
