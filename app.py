@@ -9,7 +9,7 @@ import calendar
 import pytz
 
 # ==========================================
-# 賴賴投資戰情室 V11.0 - 模組化整理版
+# 賴賴投資戰情室 V11.1 - 模組化整理版 + 南亞科鎖利
 # ==========================================
 # 整理重點：
 #  - 所有常數集中於 CONFIG
@@ -18,6 +18,7 @@ import pytz
 #  - SOXL 網格解析獨立為 parse_soxl_grid()
 #  - 錯誤處理統一用 safe_read() wrapper
 #  - 命名規則統一（*_twd / *_usd 後綴標示幣別）
+#  - 新增：第四頁面 南亞科(2408) 員工股鎖利與避險戰情
 # ==========================================
 
 st.set_page_config(page_title="賴賴終極戰情室", page_icon="💰", layout="wide")
@@ -26,7 +27,7 @@ st.set_page_config(page_title="賴賴終極戰情室", page_icon="💰", layout=
 # ① 全域常數（CONFIG）
 # ──────────────────────────────────────────
 class CONFIG:
-    TITLE          = "🛡️ 賴賴投資戰情室 V11.0"
+    TITLE          = "🛡️ 賴賴投資戰情室 V11.1"
     TICKER_TW      = "00631L"
     TICKER_TW_YF   = "00631L.TW"
     SPLIT_CUTOFF   = pd.to_datetime("2026-03-23")
@@ -224,65 +225,35 @@ def _get_us_session_label(now_et) -> str:
 
 
 @st.cache_data(ttl=CONFIG.PRICE_TTL)
-def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -> dict:
+def fetch_us_price(ticker: str) -> dict:
     import pytz, datetime as dt_mod
     et_tz = pytz.timezone("America/New_York")
     now_et = dt_mod.datetime.now(et_tz)
     session = _get_us_session_label(now_et)
 
-    # ── Alpaca ──
-    if alpaca_key and alpaca_secret:
-        try:
-            from alpaca.data.historical import StockHistoricalDataClient
-            from alpaca.data.requests import StockSnapshotRequest
-            from alpaca.data.enums import DataFeed
-
-            client = StockHistoricalDataClient(alpaca_key, alpaca_secret)
-            snap_req = StockSnapshotRequest(symbol_or_symbols=ticker, feed=DataFeed.IEX)
-            snap = client.get_stock_snapshot(snap_req)
-            s = snap.get(ticker)
-            if s:
-                prev_price  = float(s.previous_daily_bar.close) if s.previous_daily_bar else 0.0
-                trade_price = float(s.latest_trade.price) if s.latest_trade else 0.0
-                trade_time  = s.latest_trade.timestamp if s.latest_trade else None
-                curr = trade_price
-                time_str = trade_time.astimezone(et_tz).strftime("%Y-%m-%d %H:%M ET") if trade_time else "N/A"
-                return dict(curr=curr, prev=prev_price, session=session,
-                            source=f"🟢 Alpaca", time_str=time_str)
-        except ImportError:
-            st.sidebar.warning("⚠️ 未安裝 alpaca-py")
-        except Exception as e:
-            st.sidebar.warning(f"⚠️ Alpaca 失敗：{e}，改用 yfinance")
-
-    # ── yfinance fast_info ──
+    # ── yfinance 盤前盤後精準抓取 (主引擎) ──
     try:
-        import datetime as dt_mod
-        fi = yf.Ticker(ticker).fast_info
-        try:
-            ts = fi.regular_market_time
-            et_tz = pytz.timezone("America/New_York")
-            dt = (dt_mod.datetime.fromtimestamp(ts, tz=et_tz) if isinstance(ts, (int, float))
-                  else ts.astimezone(et_tz))
-            yf_time_str = dt.strftime("%Y-%m-%d %H:%M ET")
-        except Exception:
-            yf_time_str = "最後收盤價"
-        return dict(curr=float(fi.last_price), prev=float(fi.previous_close),
-                    session=session, source="🟡 yfinance", time_str=yf_time_str)
-    except Exception:
+        tkr = yf.Ticker(ticker)
+        # 強制開啟 prepost=True，抓取包含盤前盤後的最近 2 天 1 分鐘 K 線
+        hist = tkr.history(period="2d", interval="1m", prepost=True)
+        
+        if not hist.empty:
+            curr = float(hist["Close"].iloc[-1])
+            # 昨收使用 fast_info 取得會比較精準穩定
+            prev = float(tkr.fast_info.previous_close)
+            
+            # 取得這筆報價的精準時間
+            last_time = hist.index[-1].astimezone(et_tz)
+            time_str = last_time.strftime("%Y-%m-%d %H:%M ET")
+            
+            return dict(curr=curr, prev=prev, session=session,
+                        source="🟢 yfinance (含盤外)", time_str=time_str)
+    except Exception as e:
         pass
 
-    # ── yfinance history fallback ──
-    try:
-        hist = yf.download(ticker, period="5d", progress=False)
-        closes = (hist["Close"][ticker] if isinstance(hist.columns, pd.MultiIndex)
-                  else hist["Close"]).dropna()
-        curr = float(closes.iloc[-1])
-        prev = float(closes.iloc[-2] if len(closes) >= 2 else closes.iloc[-1])
-        return dict(curr=curr, prev=prev, session=session,
-                    source="🔴 yfinance 歷史備援", time_str="歷史資料")
-    except Exception:
-        return dict(curr=0.0, prev=0.0, session="❓",
-                    source="❌ 完全失敗", time_str="N/A")
+    # ── 完全失敗的最後防線 ──
+    return dict(curr=0.0, prev=0.0, session="❓",
+                source="❌ 完全失敗", time_str="N/A")
 
 
 def read_gsheets(conn, url: str, **kwargs) -> pd.DataFrame:
@@ -1010,6 +981,99 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years: int, target_k: flo
         st.table(pd.DataFrame(gp))
 
 
+def render_tab_nanya(price_info: dict):
+    """Tab 4 南亞科專屬頁面"""
+    p_curr = price_info.get("curr", 0.0)
+    p_yest = price_info.get("prev", 0.0)
+    
+    # 員工股固定參數設定
+    TOTAL_SHARES = 32_000         # 總數 32 張
+    COST_PRICE   = 32.5           # 每股成本
+    HEDGE_LOSS   = -260_000       # 歷史避險虧損 (已實現，負值)
+    
+    TOTAL_COST = TOTAL_SHARES * COST_PRICE
+    
+    # 即時計算
+    total_val  = TOTAL_SHARES * p_curr
+    unrealized = total_val - TOTAL_COST
+    net_profit = unrealized + HEDGE_LOSS   # 實質淨利 = 未實現 + 已實現虧損
+    daily_pnl  = (p_curr - p_yest) * TOTAL_SHARES
+    daily_pct  = (p_curr / p_yest - 1) * 100 if p_yest > 0 else 0
+    
+    st.subheader("🏭 南亞科 (2408) 員工股鎖利與避險戰情")
+    render_price_freshness(price_info.get("source", ""), price_info.get("time_str", ""), 
+                           price_info.get("age_min", 0), price_info.get("session", ""))
+    
+    st.divider()
+    
+    # ── 頂部指標 ──
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("目前現貨價", f"{p_curr:.2f}", f"今日 {daily_pct:+.2f}%")
+    c2.metric("總市值 (32 張)", f"{total_val/10000:,.1f} 萬")
+    c3.metric("未實現損益 (現貨)", f"{unrealized/10000:+,.1f} 萬")
+    c4.metric("避險虧損 (已實現)", f"{HEDGE_LOSS/10000:,.1f} 萬")
+    c5.metric("實質總淨利", f"{net_profit/10000:+,.1f} 萬")
+    
+    st.divider()
+    
+    # ── 解鎖時程與分批現值 ──
+    st.subheader("⏳ 解鎖時程與分批現值")
+    
+    now = datetime.today()
+    
+    def calc_tranche(date_str: str, share_ratio: float):
+        target_date = datetime.strptime(date_str, "%Y-%m-%d")
+        days_left   = (target_date - now).days
+        shares      = TOTAL_SHARES * share_ratio
+        val         = shares * p_curr
+        cost        = shares * COST_PRICE
+        profit      = val - cost
+        return target_date.strftime("%Y/%m"), max(0, days_left), shares, val, profit
+        
+    t1_month, t1_days, t1_s, t1_v, t1_p = calc_tranche("2027-05-01", 0.50)
+    t2_month, t2_days, t2_s, t2_v, t2_p = calc_tranche("2028-05-01", 0.25)
+    t3_month, t3_days, t3_s, t3_v, t3_p = calc_tranche("2029-05-01", 0.25)
+
+    # 用 DataFrame 來呈現解鎖表格會更整齊
+    df_schedule = pd.DataFrame([
+        {"解鎖梯次": "第一梯次 (50%)", "預計月份": t1_month, "距離天數": f"約 {t1_days} 天", 
+         "對應張數": f"{t1_s/1000:.0f} 張", "目前現值": f"{t1_v:,.0f} 元", "未實現損益": f"{t1_p:+,.0f} 元"},
+         
+        {"解鎖梯次": "第二梯次 (25%)", "預計月份": t2_month, "距離天數": f"約 {t2_days} 天", 
+         "對應張數": f"{t2_s/1000:.0f} 張", "目前現值": f"{t2_v:,.0f} 元", "未實現損益": f"{t2_p:+,.0f} 元"},
+         
+        {"解鎖梯次": "第三梯次 (25%)", "預計月份": t3_month, "距離天數": f"約 {t3_days} 天", 
+         "對應張數": f"{t3_s/1000:.0f} 張", "目前現值": f"{t3_v:,.0f} 元", "未實現損益": f"{t3_p:+,.0f} 元"}
+    ])
+    st.dataframe(df_schedule, use_container_width=True, hide_index=True)
+    
+    st.divider()
+    
+    # ── 避險與鎖利策略區塊 ──
+    st.subheader("🛡️ 避險與鎖利策略")
+    
+    st.info("💡 **待執行：** 距離解鎖還有一段時間，不知何時需要放空鎖定價差，需持續尋找合適時機點。")
+    
+    col_history, col_action = st.columns(2)
+    with col_history:
+        st.markdown("""
+        **【歷史紀律與教訓】**
+        * 庫存成本：**32.5 元**
+        * 曾經放空：**105 元** (南亞科期貨)
+        * 認賠平倉：**255 元** (虧損 **26 萬**)
+        * **總結**：提早避險卻遇上暴漲，導致虧損。未來執行避險時，需嚴設停損或改用選擇權控制最大風險。
+        """)
+        
+    with col_action:
+        st.markdown("""
+        **【目前防護狀態】**
+        * 狀態：🔴 **無任何避險部位** (完全裸險)
+        * 風險暴露：目前所有市值完全承受現貨價格漲跌風險。
+        * **下一步戰術評估**：
+            1. 觀察季線/年線乖離率，若出現極端超買再考慮重新放空。
+            2. 越接近解鎖日 (2027/05)，鎖定價格的急迫性越高。
+        """)
+
 # ──────────────────────────────────────────
 # ⑥ 側邊欄
 # ──────────────────────────────────────────
@@ -1117,17 +1181,16 @@ def main():
         return
 
     # ── API Keys（在 cache 函式外讀取，避免 cache 內 st.secrets 不穩定）──
-    fugle_key     = st.secrets.get("FUGLE_API_KEY", "")
-    alpaca_key    = st.secrets.get("ALPACA_API_KEY", "")
-    alpaca_secret = st.secrets.get("ALPACA_SECRET_KEY", "")
+    fugle_key = st.secrets.get("FUGLE_API_KEY", "")
 
     if not fugle_key:
         st.sidebar.warning("⚠️ 未設定 FUGLE_API_KEY，台股報價將使用 yfinance")
-    if not (alpaca_key and alpaca_secret):
-        st.sidebar.warning("⚠️ 未設定 ALPACA_API_KEY/SECRET，美股報價將使用 yfinance")
 
     # ── 資料擷取 ──
     tw_price = fetch_tw_price(CONFIG.TICKER_TW, fugle_key=fugle_key)
+    
+    # 新增：獲取南亞科(2408)即時報價
+    nanya_price = fetch_tw_price("2408", fugle_key=fugle_key)
 
     # 台股 split 還原：
     #   分割後（2026-03-23 起）Fugle/yfinance 回傳的已是低價（≤ SPLIT_THRESH），直接用。
@@ -1141,7 +1204,7 @@ def main():
     # 解析台股交易
     tw_trade = parse_tw_trades(df_tw_raw)
 
-    # 解析美股交易 + 即時報價（Alpaca 含盤前盤後）
+    # 解析美股交易 + 即時報價
     us_live = {}
     us_session = ""
     import pytz, datetime as dt_mod
@@ -1150,7 +1213,7 @@ def main():
 
     for t in CONFIG.US_TICKERS:
         trade = parse_us_trades(df_us_raw, t)
-        price = fetch_us_price(t, alpaca_key=alpaca_key, alpaca_secret=alpaca_secret)
+        price = fetch_us_price(t)
         if not us_session:
             us_session = price.get("session", "")
         us_live[t] = {
@@ -1178,8 +1241,8 @@ def main():
     cash_parking=cash_parking,
     )
 
-    # ── 渲染三個 Tab ──
-    tab1, tab2, tab3 = st.tabs(["💰 台股", "💵 美股", "🛬 生命周期 & 退休"])
+    # ── 渲染四個 Tab ──
+    tab1, tab2, tab3, tab4 = st.tabs(["💰 台股", "💵 美股", "🛬 生命周期 & 退休", "🏭 南亞科 (2408)"])
 
     with tab1:
         render_tab_tw(tw_trade, port, p_tw_curr, p_tw_yest,
@@ -1196,8 +1259,11 @@ def main():
             params["target_monthly"], params["inflation_rate"],
             params["withdrawal_rate"], params["usd_twd"],
         )
+        
+    with tab4:
+        render_tab_nanya(nanya_price)
 
-    st.caption("📱 V11.0 模組化整理版 | CONFIG 集中管理 | 資料 / 計算 / UI 三層分離")
+    st.caption("📱 V11.1 模組化整理版 | 新增南亞科獨立戰情頁面 | 資料 / 計算 / UI 三層分離")
 
 
 if __name__ == "__main__" or True:
