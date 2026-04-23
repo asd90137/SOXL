@@ -16,7 +16,7 @@ import streamlit as st
 # ==========================================
 
 # ① 設定分頁標題
-st.set_page_config(page_title="時間複利戰情室 | 賴賴", page_icon="📈", layout="wide")
+st.set_page_config(page_title="時間複利戰情室 | 賴賴", page_icon="💵", layout="wide")
 
 # ──────────────────────────────────────────
 # ① 全域常數（CONFIG）
