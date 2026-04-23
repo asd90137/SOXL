@@ -1,3 +1,5 @@
+但我的 alpaca 沒有盤前盤後
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -283,7 +285,6 @@ def fetch_us_price(ticker: str, alpaca_key: str = "", alpaca_secret: str = "") -
     except Exception:
         return dict(curr=0.0, prev=0.0, session="❓",
                     source="❌ 完全失敗", time_str="N/A")
-
 
 
 def read_gsheets(conn, url: str, **kwargs) -> pd.DataFrame:
@@ -789,45 +790,6 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
     st.caption(f"{source_info} {us_session} {time_info}")
 
     st.subheader("🎯 SOXL 網格進出戰略")
-    # ── 資金停泊區 UI ──
-    parking  = cash_parking or []
-    tmf_info = us_live.get("TMF", {})
-    tmf_val  = tmf_info.get("curr", 0) * tmf_info.get("shares", 0)
-    total_parked = sum(p["amount_usd"] for p in parking) + tmf_val
-
-    with st.expander("🅿️ 資金停泊區（CD / T-Bill / 待轉換）", expanded=True):
-        if not parking and tmf_val == 0:
-            st.info("目前無 CD / T-Bill 停泊紀錄。閒置資金建議停泊於 **1～3 個月期美國國債**，等待大跌機會。")
-        else:
-            st.caption(f"總閒置資金合計：**${total_parked:,.0f} USD**（含 TMF 市值）")
-            if parking:
-                park_rows = []
-                for p in sorted(parking, key=lambda x: x["maturity"] or datetime.max.date()):
-                    days = p["days_left"]
-                    if days is None:
-                        days_str, urgency = "N/A", ""
-                    elif days <= 0:
-                        days_str, urgency = "✅ 已到期", "🔴"
-                    elif days <= 7:
-                        days_str, urgency = f"⚠️ {days} 天後到期", "🟠"
-                    else:
-                        days_str, urgency = f"{days} 天後到期", "🟡"
-                    park_rows.append({
-                        "類型": p["type"],
-                        "金額 (USD)": f"${p['amount_usd']:,.0f}",
-                        "到期日": str(p["maturity"]) if p["maturity"] else "N/A",
-                        "狀態": f"{urgency} {days_str}",
-                        "備註": p["note"],
-                    })
-                st.dataframe(pd.DataFrame(park_rows), use_container_width=True, hide_index=True)
-            if tmf_val > 0:
-                tmf_shares = tmf_info.get("shares", 0)
-                tmf_price  = tmf_info.get("curr", 0)
-                st.warning(
-                    f"🔄 **TMF 待轉換 → SOXL**\n\n"
-                    f"目前持有 {tmf_shares:,.0f} 股 × ${tmf_price:.2f} = **${tmf_val:,.0f} USD**\n\n"
-                    "建議在 SOXX 出現買入訊號時分批換倉。"
-                )
 
     # 網格指標
     g = grid
@@ -912,6 +874,44 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
             "年化報酬": f"{l_ann:+.2f}%",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    st.write("---")
+
+    # ── 資金停泊區 UI (移動至此，移除 expander 改為直接展開) ──
+    st.subheader("🅿️ 資金停泊區（CD / T-Bill / 待轉換）")
+    parking  = cash_parking or []
+    tmf_info = us_live.get("TMF", {})
+    tmf_val  = tmf_info.get("curr", 0) * tmf_info.get("shares", 0)
+    total_parked = sum(p["amount_usd"] for p in parking) + tmf_val
+
+    if not parking and tmf_val == 0:
+        st.info("目前無 CD / T-Bill 停泊紀錄。閒置資金建議停泊於 **1～3 個月期美國國債**，等待大跌機會。")
+    else:
+        st.caption(f"總閒置資金合計：**${total_parked:,.0f} USD**（含 TMF 市值）")
+        if parking:
+            park_rows = []
+            for p in sorted(parking, key=lambda x: x["maturity"] or datetime.max.date()):
+                days = p["days_left"]
+                if days is None:
+                    days_str, urgency = "N/A", ""
+                elif days <= 0:
+                    days_str, urgency = "✅ 已到期", "🔴"
+                elif days <= 7:
+                    days_str, urgency = f"⚠️ {days} 天後到期", "🟠"
+                else:
+                    days_str, urgency = f"{days} 天後到期", "🟡"
+                park_rows.append({
+                    "類型": p["type"],
+                    "金額 (USD)": f"${p['amount_usd']:,.0f}",
+                    "到期日": str(p["maturity"]) if p["maturity"] else "N/A",
+                    "狀態": f"{urgency} {days_str}",
+                    "備註": p["note"],
+                })
+            st.dataframe(pd.DataFrame(park_rows), use_container_width=True, hide_index=True)
+        if tmf_val > 0:
+            tmf_shares = tmf_info.get("shares", 0)
+            tmf_price  = tmf_info.get("curr", 0)
+            
 
     st.divider()
     st.link_button("🛒 新增美股交易紀錄 (Google Sheets)", CONFIG.SHEET_US, use_container_width=True)
@@ -1035,7 +1035,7 @@ def render_sidebar() -> dict:
 
     st.sidebar.divider()
     st.sidebar.header("⚙️ 生命周期與退休規劃")
-    usd_twd           = st.sidebar.number_input("4. 目前美元匯率",          value=32.0)
+    usd_twd           = st.sidebar.number_input("4. 目前美元匯率",         value=32.0)
     hc_years          = st.sidebar.number_input("5. 預計剩餘投入年限",       value=11)
     target_k          = st.sidebar.number_input("6. 一生目標曝險度 (%)",     value=83)
     target_monthly    = st.sidebar.number_input("7. 目標月領金額 (現值)",    value=100_000, step=10_000)
