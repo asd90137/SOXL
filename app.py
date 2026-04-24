@@ -983,7 +983,7 @@ def render_tab_nanya(price_info: dict):
     
     # 員工股固定參數設定
     TOTAL_SHARES = 32_000         # 總數 32 張
-    COST_PRICE   = 32.5           # 每股成本
+    COST_PRICE   = 32.75           # 每股成本
     HEDGE_LOSS   = -260_000       # 歷史避險虧損 (已實現，負值)
     
     TOTAL_COST = TOTAL_SHARES * COST_PRICE
@@ -1027,9 +1027,9 @@ def render_tab_nanya(price_info: dict):
         profit      = val - cost
         return target_date.strftime("%Y/%m"), max(0, days_left), shares, val, profit
         
-    t1_month, t1_days, t1_s, t1_v, t1_p = calc_tranche("2027-05-01", 0.50)
-    t2_month, t2_days, t2_s, t2_v, t2_p = calc_tranche("2028-05-01", 0.25)
-    t3_month, t3_days, t3_s, t3_v, t3_p = calc_tranche("2029-05-01", 0.25)
+    t1_month, t1_days, t1_s, t1_v, t1_p = calc_tranche("2027-04-16", 0.50)
+    t2_month, t2_days, t2_s, t2_v, t2_p = calc_tranche("2028-04-16", 0.25)
+    t3_month, t3_days, t3_s, t3_v, t3_p = calc_tranche("2029-04-16", 0.25)
 
     # 用 DataFrame 來呈現解鎖表格會更整齊
     df_schedule = pd.DataFrame([
@@ -1055,7 +1055,7 @@ def render_tab_nanya(price_info: dict):
     with col_history:
         st.markdown("""
         **【歷史紀律與教訓】**
-        * 庫存成本：**32.5 元**
+        * 庫存成本：**32.75 元**
         * 曾經放空：**105 元** (南亞科期貨)
         * 認賠平倉：**255 元** (虧損 **26 萬**)
         * **總結**：提早避險卻遇上暴漲，導致虧損。未來執行避險時，需嚴設停損或改用選擇權控制最大風險。
@@ -1068,7 +1068,7 @@ def render_tab_nanya(price_info: dict):
         * 風險暴露：目前所有市值完全承受現貨價格漲跌風險。
         * **下一步戰術評估**：
             1. 觀察季線/年線乖離率，若出現極端超買再考慮重新放空。
-            2. 越接近解鎖日 (2027/05)，鎖定價格的急迫性越高。
+            2. 越接近解鎖日 (2027/04/16)，鎖定價格的急迫性越高。
         """)
 
 # ──────────────────────────────────────────
@@ -1135,7 +1135,7 @@ def main():
         <div class="war-room-title">
             <h1 class="main-title">時間複利戰情室</h1>
             <p class="sub-title">
-                <span class="dash">─────── </span>長線決策大腦 ╳ 絕對紀律執行<span class="dash"> ───────</span>
+                <span class="dash">─────── </span>長線決策大腦 ⚔️ 絕對紀律執行<span class="dash"> ───────</span>
             </p>
         </div>
     """, unsafe_allow_html=True)
