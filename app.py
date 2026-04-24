@@ -995,11 +995,11 @@ def render_tab_nanya(price_info: dict):
     daily_pnl  = (p_curr - p_yest) * TOTAL_SHARES
     daily_pct  = (p_curr / p_yest - 1) * 100 if p_yest > 0 else 0
     
-    st.subheader("🏭 南亞科 (2408) 員工股鎖利與避險戰情")
     render_price_freshness(price_info.get("source", ""), price_info.get("time_str", ""), 
                            price_info.get("age_min", 0), price_info.get("session", ""))
     
-    st.divider()
+    st.subheader("🏭 南亞科 (2408) 員工股鎖利與避險戰情")
+    
     
     # ── 頂部指標 ──
     # 新增今日報酬，將欄位改為 6 欄顯示
