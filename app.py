@@ -1264,7 +1264,7 @@ def main():
     )
 
     # ── 渲染四個 Tab ──
-    tab1, tab2, tab3, tab4 = st.tabs(["💰 台股", "💵 美股", "🛬 生命周期 & 退休", "🏭 南亞科 (2408)"])
+    tab1, tab2, tab3, tab4 = st.tabs(["💰 台股", "💵 美股", "🛬 生命周期 & 退休", "🏭 南亞科"])
 
     with tab1:
         render_tab_tw(tw_trade, port, p_tw_curr, p_tw_yest,
