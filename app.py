@@ -848,14 +848,14 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
         session_label = info.get("session", "")
         rows.append({
             "代號": t,
+            "目前現價": f"${info['curr']:.2f}",
+            "今日損益": f"${today_p:+,.2f} ({pct_d:+.2f}%)",
+            "總損益":   f"${total_p:+,.2f} ({l_roi*100:+.2f}%)",
             "股數": f"{info['shares']:,.0f}",
             "股數": f"{info['shares']:,.0f}",
             "均價": f"${avg:.2f}",
             "成本": f"${info['cost']:,.0f}",
             "昨日收盤": f"${info['yest']:.2f}",
-            "目前現價": f"${info['curr']:.2f}",
-            "今日損益": f"${today_p:+,.2f} ({pct_d:+.2f}%)",
-            "總損益":   f"${total_p:+,.2f} ({l_roi*100:+.2f}%)",
             "年化報酬": f"{l_ann:+.2f}%",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
