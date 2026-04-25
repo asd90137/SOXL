@@ -488,11 +488,11 @@ def render_price_freshness(source: str, time_str: str, age_min: float, session: 
     """顯示報價新鮮度 + 交易時段 caption"""
     session_tag = f" {session}" if session else ""
     if age_min < 60:
-        st.caption(f"{source}{session_tag} ｜ {time_str}（{age_min:.0f} 分鐘前）")
+        st.caption(f"{source}{session_tag} {time_str}（{age_min:.0f} 分鐘前）")
     elif age_min < 480:
-        st.caption(f"{source}{session_tag} ｜ {time_str}（{age_min/60:.1f} 小時前）")
+        st.caption(f"{source}{session_tag} {time_str}（{age_min/60:.1f} 小時前）")
     elif age_min < 9999:
-        st.caption(f"{source}{session_tag} 可能異常 ｜ {time_str}（{age_min/60:.1f} 小時前）")
+        st.caption(f"{source}{session_tag} {time_str}（{age_min/60:.1f} 小時前）")
     else:
         st.caption(f"{source}{session_tag} ｜ 使用歷史收盤價（{time_str}）")
 
@@ -619,7 +619,7 @@ def render_tab_tw(tw_trade: dict, port: dict, p_tw_curr: float, p_tw_yest: float
                           showlegend=False, yaxis=dict(title="金額 (NT$)"))
         st.plotly_chart(fig, use_container_width=True)
     with col_d:
-        st.info(f"💡 **台股獨立淨資產 (FC_TW)**\n\nNT$ {port['fc_tw_twd']/10000:,.1f} 萬\n\n*台股市值 + 台幣現金 − 總信貸*")
+        st.info(f"💡 **台股獨立淨資產**\n\nNT$ {port['fc_tw_twd']/10000:,.1f} 萬\n\n*台股市值 + 台幣現金 − 總信貸*")
 
     # --- 逐筆戰績 ---
     with st.expander(f"📜 逐筆投資戰績表 (目前現價: {p_tw_curr:.2f})", expanded=False):
@@ -734,7 +734,28 @@ def _render_tw_charts(tw_trade: dict, p_tw_curr: float, p_tw_yest: float):
                 fig3.add_annotation(x=dp_s.index[-1], y=pl, text=f"最新:{pl:.1f}%", showarrow=True, ax=40)
                 fig3.update_yaxes(range=[min(pi*1.2, -15), max(px*1.2, 20)])
                 st.plotly_chart(fig3, use_container_width=True)
+        # D. 成本 vs 市值（金額軌跡）
+        st.write("💴 **D. 庫存成本 vs 市值 金額軌跡**")
+        if not buy_df.empty:
+            mv_m = (ds * rp) / 1_000_000
+            cc_m = dc.reindex(rp.index).ffill() / 1_000_000
+            mv_m = mv_m.dropna()
+            cc_m = cc_m.reindex(mv_m.index)
 
+            last_pnl = mv_m.iloc[-1] - cc_m.iloc[-1]
+            sign = "+" if last_pnl >= 0 else ""
+
+            fig4 = go.Figure()
+            fig4.add_trace(go.Scatter(x=cc_m.index, y=cc_m.values, name="累積成本", line=dict(color="#888888", width=2)))
+            fig4.add_trace(go.Scatter(x=mv_m.index, y=mv_m.values, name="市值", line=dict(color="#2EC4B6", width=2.5)))
+            fig4.add_annotation(x=mv_m.idxmax(), y=mv_m.max(), text=f"最高:{mv_m.max():.2f}M", showarrow=True, ay=-30)
+            fig4.add_annotation(x=mv_m.index[-1], y=mv_m.iloc[-1], text=f"最新:{mv_m.iloc[-1]:.2f}M", showarrow=True, ax=40)
+            fig4.add_annotation(x=cc_m.index[-1], y=cc_m.iloc[-1], text=f"成本:{cc_m.iloc[-1]:.2f}M", showarrow=True, ay=30, ax=40)
+            st.plotly_chart(fig4, use_container_width=True)
+
+            # 損益單獨一行顯示在圖下方
+            pnl_color = "#2EC4B6" if last_pnl >= 0 else "#E71D36"
+            st.markdown(f"<p style='color:{pnl_color}; font-size:16px; margin:0'>目前損益：{sign}NT$ {last_pnl:.2f}M</p>", unsafe_allow_html=True)
     except Exception as e:
         st.error(f"圖表載入失敗，請稍後重試。({e})")
 
@@ -811,7 +832,7 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
         st.plotly_chart(fig, use_container_width=True)
     with col_info:
         fc_us = port["fc_us_usd"]
-        st.info(f"💡 **美股獨立淨資產 (FC_US)**\n\nUS$ {fc_us:,.0f}\n\n*美股市值 + 美股現金 + CD停泊*")
+        st.info(f"💡 **美股獨立淨資產**\n\nUS$ {fc_us:,.0f}\n\n*美股市值 + 美股現金 + CD停泊*")
 
     # 個股明細
     st.subheader("📦 個股明細")
@@ -827,7 +848,7 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
         session_label = info.get("session", "")
         rows.append({
             "代號": t,
-            "時段": session_label,
+            "股數": f"{info['shares']:,.0f}",
             "股數": f"{info['shares']:,.0f}",
             "均價": f"${avg:.2f}",
             "成本": f"${info['cost']:,.0f}",
@@ -842,7 +863,7 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
     st.write("---")
 
     # ── 資金停泊區 UI (移動至此，移除 expander 改為直接展開) ──
-    st.subheader("🅿️ 資金停泊區（CD / T-Bill / 待轉換）")
+    st.subheader("🅿️ 資金停泊區")
     parking  = cash_parking or []
     tmf_info = us_live.get("TMF", {})
     tmf_val  = tmf_info.get("curr", 0) * tmf_info.get("shares", 0)
@@ -908,7 +929,7 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years: int, target_k: flo
     pct_tot  = port["pct_total"]
 
     st.markdown(f"""
-| 戰區 | 曝險金額 (台幣) | 淨資產 (FC) | 獨立曝險度 |
+| 戰區 | 曝險金額  | 淨資產 | 獨立曝險度 |
 | :--- | :--- | :--- | :--- |
 | 💰 台股 | NT$ {exp_tw/10000:,.0f} 萬 | NT$ {fc_tw/10000:,.0f} 萬 | **{pct_tw:.1f}%** |
 | 💵 美股 | NT\$ {exp_us/10000:,.0f} 萬<br/><span style="font-size: 0.85em; color: gray;"> {port['exp_us_usd']:,.0f} | NT\$ {fc_us/10000:,.0f} 萬<br/><span style="font-size: 0.85em; color: gray;">  {port['fc_us_usd']:,.0f} | **{pct_us:.1f}%** |
