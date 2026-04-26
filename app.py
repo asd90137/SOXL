@@ -615,7 +615,7 @@ def render_tab_tw(tw_trade: dict, port: dict, p_tw_curr: float, p_tw_yest: float
             totals={"marker": {"color": "#FF9F1C"}},
             connector={"line": {"color": "#5C5C5C", "width": 1, "dash": "dot"}},
         ))
-        fig.update_layout(height=380, margin=dict(l=10, r=10, t=10, b=10),
+        fig.update_layout(height=380, margin=dict(l=10, r=10, t=40, b=10),
                           showlegend=False, yaxis=dict(title="金額 (NT$)"))
         st.plotly_chart(fig, use_container_width=True)
     with col_d:
