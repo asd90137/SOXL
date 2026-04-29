@@ -7,8 +7,7 @@ from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import calendar
 import pytz
-import streamlit as st
-# ... (其他 import) ...
+from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
 # 時間複利戰情室 V11.0 - 模組化整理版
@@ -902,8 +901,8 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
     st.link_button("🛒 新增美股交易紀錄 (Google Sheets)", CONFIG.SHEET_US, use_container_width=True)
 
 
-def render_tab_lifecycle(port: dict, base_m: float, hc_years: int, target_k: float,
-                         target_monthly_now: float, inflation_rate: float, withdrawal_rate: float,
+def render_tab_lifecycle(port: dict, base_m: float, hc_years_default: int, target_k: float,
+                         target_monthly_default: float, inflation_rate: float, withdrawal_rate: float,
                          usd_twd: float):
     """Tab 3 生命周期 & 退休"""
     st.subheader("⚖️ 生命周期曝險透視")
@@ -937,7 +936,7 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years: int, target_k: flo
 """, unsafe_allow_html=True)
 
     # 目標曝險度
-    W = fc_total + base_m * 12 * hc_years
+    W = fc_total + base_m * 12 * hc_years_default
     target_exp_val = W * (target_k / 100)
     target_exp_pct = (target_exp_val / fc_total * 100) if fc_total > 0 else 0
 
@@ -957,19 +956,31 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years: int, target_k: flo
     # 退休試算
     st.divider()
     st.subheader("☕ 退休終局與提領反推")
+    st.caption("＊通膨率、提領率等進階參數可在側邊欄「進階參數」中調整（預設：通膨 2%、提領率 4%）")
+
+        # ── 情境 A ──
+    st.markdown("**📈 情境 A：若工作幾年後退休？**")
+    hc_years = st.number_input("工作年限（年）", min_value=1, max_value=40,
+                                value=hc_years_default)
+
     fa = fc_total
     for _ in range(hc_years):
         fa = fa * 1.08 + base_m * 12
     m_a     = fa * withdrawal_rate / 12
     m_a_now = m_a / ((1 + inflation_rate) ** hc_years)
-    st.markdown(f"**📈 情境 A：若工作 {hc_years} 年後退休**")
     ca1, ca2, ca3 = st.columns(3)
     ca1.metric("屆時滾出資產",      f"NT$ {fa/10000:,.0f} 萬")
     ca2.metric("未來每月可領",       f"NT$ {m_a:,.0f}")
     ca3.metric("約等同現在每月可領", f"NT$ {m_a_now:,.0f}")
 
     st.write("")
-    st.markdown(f"**🎯 情境 B：反推想月領 {target_monthly_now/10000:.0f} 萬 (現值) 的退休金**")
+
+    # ── 情境 B ──
+    st.markdown("**🎯 情境 B：反推想月領幾萬的退休金？**")
+    target_monthly_wan = st.number_input("目標月領（萬）", min_value=1, max_value=100,
+                                         value=int(target_monthly_default // 10_000))
+    target_monthly_now = target_monthly_wan * 10_000
+
     found_y, final_f, final_m = None, 0, 0
     tf = fc_total
     for y in range(1, 41):
@@ -1114,6 +1125,25 @@ def render_sidebar() -> dict:
         st.info(f"貸2剩餘：{loan2/10000:.1f} 萬")
 
     st.sidebar.divider()
+
+    with st.sidebar.expander("⚙️ 進階參數（通常不需調整）", expanded=False):
+        usd_twd         = st.number_input("4. 目前美元匯率",       value=32.0)
+        target_k        = st.number_input("6. 一生目標曝險度 (%)", value=83)
+        inflation_rate  = st.number_input("8. 預估通膨 (%)",       value=2.0) / 100
+        withdrawal_rate = st.number_input("9. 安全提領率 (%)",     value=4.0) / 100
+
+    # 5 和 7 改在 Tab3 內填寫，這裡給預設值讓 main() 傳入
+    return dict(
+        loan1=loan1, loan2=loan2, pmt1=pmt1, pmt2=pmt2,
+        usd_twd=usd_twd, target_k=target_k,
+        inflation_rate=inflation_rate,
+        withdrawal_rate=withdrawal_rate,
+        # hc_years 和 target_monthly 已移至 Tab3，這裡給佔位預設值
+        hc_years=11,
+        target_monthly=100_000,
+    )
+
+    st.sidebar.divider()
     st.sidebar.header("⚙️ 生命周期與退休規劃")
     usd_twd           = st.sidebar.number_input("4. 目前美元匯率",         value=32.0)
     hc_years          = st.sidebar.number_input("5. 預計剩餘投入年限",       value=11)
@@ -1135,6 +1165,10 @@ def render_sidebar() -> dict:
 # ──────────────────────────────────────────
 
 def main():
+    # 👇 在 main() 的最開頭加上這行 👇
+    # interval=60000 代表 60000 毫秒 (即 60 秒)
+    # key="war_room_refresh" 是給這個計時器一個專屬的內部標籤，避免衝突
+    st_autorefresh(interval=30000, key="war_room_refresh")
     # 這裡取代原本的 st.title(CONFIG.TITLE)
     # ② 顯示戰情室大標題 (強制放大版)
     st.markdown("""
