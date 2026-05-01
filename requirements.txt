@@ -6,3 +6,4 @@ plotly
 st-gsheets-connection
 fugle-marketdata
 alpaca-py
+streamlit-autorefresh
