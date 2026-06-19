@@ -28,10 +28,10 @@ class CONFIG:
     SPLIT_RATIO    = 22.0
     SPLIT_THRESH   = 100.0          # 分割前股價門檻
 
-    US_TICKERS     = ["SOXL", "TMF", "BITX"]
+    US_TICKERS = ["SOXL", "TMF", "BITX", "QQQM", "BOXX", "MUU"]
     # 各 ETF「名目槓桿倍數」用於曝險計算
     # TMF = 0：長債持倉不計入股市曝險（與舊版行為一致）
-    LEVERAGE_MAP   = {"SOXL": 3, "BITX": 2, "TMF": 0}
+    LEVERAGE_MAP = {"SOXL": 3, "BITX": 2, "TMF": 0, "QQQM": 1, "BOXX": 0, "MUU": 2}
 
     SHEET_TW = "https://docs.google.com/spreadsheets/d/1yYs-JIW4-8jr8EoyyWlydNrE5Gtd_frWdlMQVdn1VYk/edit?usp=sharing"
     SHEET_US = "https://docs.google.com/spreadsheets/d/1-NPhyuRNWSarFPdgHjUkB9J3smSbn3u3fjUbMhMVyfI/edit?usp=sharing"
@@ -741,20 +741,31 @@ def _render_tw_charts(tw_trade: dict, p_tw_curr: float, p_tw_yest: float):
             mv_m = mv_m.dropna()
             cc_m = cc_m.reindex(mv_m.index)
 
-            last_pnl = mv_m.iloc[-1] - cc_m.iloc[-1]
+            true_cost_m = tw_trade["cost"] / 1_000_000
+            true_val_m  = tw_trade["shares"] * p_tw_curr / 1_000_000
+            last_pnl = true_val_m - true_cost_m
             sign = "+" if last_pnl >= 0 else ""
 
             fig4 = go.Figure()
             fig4.add_trace(go.Scatter(x=cc_m.index, y=cc_m.values, name="累積成本", line=dict(color="#888888", width=2)))
             fig4.add_trace(go.Scatter(x=mv_m.index, y=mv_m.values, name="市值", line=dict(color="#2EC4B6", width=2.5)))
             fig4.add_annotation(x=mv_m.idxmax(), y=mv_m.max(), text=f"最高:{mv_m.max():.2f}M", showarrow=True, ay=-30)
-            fig4.add_annotation(x=mv_m.index[-1], y=mv_m.iloc[-1], text=f"最新:{mv_m.iloc[-1]:.2f}M", showarrow=True, ax=40)
-            fig4.add_annotation(x=cc_m.index[-1], y=cc_m.iloc[-1], text=f"成本:{cc_m.iloc[-1]:.2f}M", showarrow=True, ay=30, ax=40)
+            fig4.add_annotation(x=mv_m.index[-1], y=mv_m.iloc[-1], text=f"最新:{true_val_m:.2f}M", showarrow=True, ax=40)
+            fig4.add_annotation(x=cc_m.index[-1], y=cc_m.iloc[-1], text=f"成本:{true_cost_m:.2f}M", showarrow=True, ay=30, ax=40)
             st.plotly_chart(fig4, use_container_width=True)
 
             # 損益單獨一行顯示在圖下方
+            hist_pnl_m   = (mv_m - cc_m)[cc_m > 0]   # 只看有成本的區間
+            max_pnl_m    = hist_pnl_m.max()
+            max_pnl_date = hist_pnl_m.idxmax().strftime("%Y-%m-%d")
+
             pnl_color = "#2EC4B6" if last_pnl >= 0 else "#E71D36"
-            st.markdown(f"<p style='color:{pnl_color}; font-size:16px; margin:0'>目前損益：{sign}NT$ {last_pnl:.2f}M</p>", unsafe_allow_html=True)
+            st.markdown(
+                f"<p style='color:#FFD700; font-size:16px; margin:0'>🏆 歷史最大損益：+NT$ {max_pnl_m:.2f}M　（{max_pnl_date}）</p>"
+                f"<p style='color:{pnl_color}; font-size:16px; margin:0'>目前損益：{sign}NT$ {last_pnl:.2f}M</p>",
+                unsafe_allow_html=True
+            )
+
     except Exception as e:
         st.error(f"圖表載入失敗，請稍後重試。({e})")
 
@@ -784,13 +795,13 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("目前進度",  f"第 {g['tranche_no']} 份")
-    c2.metric("目前股價",  f"${soxl_curr:.2f}", f"今日 {soxl_daily_pct:+.2f}%")
+    c2.metric("目前股價",  f"${soxl_curr:.2f}", f"{soxl_daily_pct:+.2f}%")
     c3.metric(f"平均股價 ({g['total_shares']:,.0f} 股)", f"${g['avg_price']:.2f}", f"{cur_roi:+.2f}%")
     c4.metric(f"目標停利 ({g['tp_pct']:.0f}%,  預估+${est_profit:,.0f})",
-              f"${g['tp_price']:.2f}", f"差距 {tp_dist:+.2f}%" if soxl_curr > 0 and g["tp_price"] > 0 else "N/A")
+              f"${g['tp_price']:.2f}", f"{tp_dist:+.2f}%" if soxl_curr > 0 and g["tp_price"] > 0 else "N/A")
     if g["next_add_price"] > 0:
         c5.metric(f"加碼股價 ({g['next_add_shares']:,.0f} 股)",
-                  f"${g['next_add_price']:.2f}", f"差距 {add_dist:+.2f}%" if soxl_curr > 0 else "N/A")
+                  f"${g['next_add_price']:.2f}", f"{add_dist:+.2f}%" if soxl_curr > 0 else "N/A")
     else:
         c5.metric("加碼股價", "已滿倉", "無加碼空間")
 
@@ -916,6 +927,40 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years_default: int, targe
     c1, c2 = st.columns(2)
     c1.metric("💰 台股投資組合佔比", f"{tw_pct:.1f}%")
     c2.metric("💵 美股投資組合佔比", f"{us_pct:.1f}%")
+    # ── 目標達成計算器 ──
+    st.subheader("🎯 目標達成計算器")
+    TARGET = 20_000_000  # 2000 萬
+
+    fc_total_now = port["fc_total_twd"]
+    gap = TARGET - fc_total_now
+    gap_pct = (TARGET / fc_total_now - 1) * 100 if fc_total_now > 0 else 0
+
+    col_t1, col_t2 = st.columns(2)
+    col_t1.metric("目標資產", f"NT$ {TARGET/10000:,.0f} 萬")
+    col_t2.metric("目前資產", f"NT$ {fc_total_now/10000:,.1f} 萬")
+
+    if gap > 0:
+        st.error(f"📉 距離目標還差 **NT$ {gap/10000:,.1f} 萬**（**{gap_pct:.1f}%**）")
+    else:
+        st.success(f"🎉 已超越目標！超出 NT$ {abs(gap)/10000:,.1f} 萬")
+
+    # 各報酬率需要幾次複利
+    rows_target = []
+    for r in [2, 3, 4, 5, 6, 7]:
+        if fc_total_now <= 0 or fc_total_now >= TARGET:
+            n = 0
+        else:
+            import math
+            n = math.ceil(math.log(TARGET / fc_total_now) / math.log(1 + r / 100))
+        total_after = fc_total_now * ((1 + r / 100) ** n)
+        rows_target.append({
+            "每次漲幅": f"+{r}%",
+            "需要幾次": f"{n} 次",
+            "複利後資產 (萬)": f"{total_after/10000:,.1f}",
+        })
+
+    st.dataframe(pd.DataFrame(rows_target), use_container_width=True, hide_index=True)
+
 
     fc_tw    = port["fc_tw_twd"]
     fc_us    = port["fc_us_usd"] * usd_twd
@@ -935,8 +980,38 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years_default: int, targe
 | 🔥 綜合 | **NT$ {exp_tot/10000:,.0f} 萬** | **NT$ {fc_total/10000:,.0f} 萬** | **{pct_tot:.1f}%** |
 """, unsafe_allow_html=True)
 
+        # ── 自動偵測：剛剛動了情境A還是情境B，不用按鈕，看誰的值剛改變 ──
+    cur_hc_years   = st.session_state.get("lc_hc_years", hc_years_default)
+    cur_target_wan = st.session_state.get("lc_target_wan", int(target_monthly_default // 10_000))
+
+    prev_hc_years   = st.session_state.get("_prev_hc_years", cur_hc_years)
+    prev_target_wan = st.session_state.get("_prev_target_wan", cur_target_wan)
+
+    if cur_hc_years != prev_hc_years:
+        st.session_state["lc_basis"] = "A"
+    elif cur_target_wan != prev_target_wan:
+        st.session_state["lc_basis"] = "B"
+    basis = st.session_state.get("lc_basis", "A")
+
+    st.session_state["_prev_hc_years"]   = cur_hc_years
+    st.session_state["_prev_target_wan"] = cur_target_wan
+
+    # 情境B反推年限：在這裡先算好（每次都重算，不會慢半拍）
+    found_y, final_f, final_m = None, 0, 0
+    tf = fc_total
+    for y in range(1, 41):
+        tf = tf * 1.08 + base_m * 12
+        req = (cur_target_wan * 10_000) * ((1 + inflation_rate) ** y)
+        if tf >= (req * 12) / withdrawal_rate:
+            found_y, final_f, final_m = y, tf, req
+            break
+
+    effective_years = cur_hc_years if basis == "A" else (found_y or hc_years_default)
+    note = "" if (basis != "B" or found_y) else "（40年內未達標，暫用預設年限）"
+    st.caption(f"🎛️ 依「{'情境A' if basis == 'A' else '情境B'}」最近的調整，套用 {effective_years} 年{note}")
+
     # 目標曝險度
-    W = fc_total + base_m * 12 * hc_years_default
+    W = fc_total + base_m * 12 * effective_years
     target_exp_val = W * (target_k / 100)
     target_exp_pct = (target_exp_val / fc_total * 100) if fc_total > 0 else 0
 
@@ -960,8 +1035,9 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years_default: int, targe
 
         # ── 情境 A ──
     st.markdown("**📈 情境 A：若工作幾年後退休？**")
-    hc_years = st.number_input("工作年限（年）", min_value=1, max_value=40,
-                                value=hc_years_default)
+        hc_years = st.number_input("工作年限（年）", min_value=1, max_value=40,
+                                value=hc_years_default, key="lc_hc_years")
+
 
     fa = fc_total
     for _ in range(hc_years):
@@ -975,20 +1051,11 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years_default: int, targe
 
     st.write("")
 
-    # ── 情境 B ──
+        # ── 情境 B ──
     st.markdown("**🎯 情境 B：反推想月領幾萬的退休金？**")
     target_monthly_wan = st.number_input("目標月領（萬）", min_value=1, max_value=100,
-                                         value=int(target_monthly_default // 10_000))
-    target_monthly_now = target_monthly_wan * 10_000
-
-    found_y, final_f, final_m = None, 0, 0
-    tf = fc_total
-    for y in range(1, 41):
-        tf = tf * 1.08 + base_m * 12
-        req = target_monthly_now * ((1 + inflation_rate) ** y)
-        if tf >= (req * 12) / withdrawal_rate:
-            found_y, final_f, final_m = y, tf, req
-            break
+                                         value=int(target_monthly_default // 10_000), key="lc_target_wan")
+    # found_y / final_f / final_m 已在上面算好，直接沿用，不重算
     if found_y:
         cb1, cb2, cb3 = st.columns(3)
         cb1.metric("需滾出資產",   f"NT$ {final_f/10000:,.0f} 萬")
@@ -999,10 +1066,11 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years_default: int, targe
     with st.expander("🛬 降落時程推演表 (Glide Path)", expanded=False):
         gp = []
         cf = fc_total
-        for y in range(hc_years + 1):
+        for y in range(effective_years + 1):
             if y > 0:
                 cf = cf * 1.08 + base_m * 12
-            h_r = max(0, base_m * 12 * hc_years - base_m * 12 * y)
+            h_r = max(0, base_m * 12 * effective_years - base_m * 12 * y)
+
             e_g = ((cf + h_r) * target_k / 100) / cf * 100 if cf > 0 else 0
             gp.append({"年": f"第 {y} 年", "預估資產(萬)": f"{cf/10000:,.0f}", "應有曝險": f"{e_g:.1f}%"})
         st.table(pd.DataFrame(gp))
