@@ -1033,11 +1033,10 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years_default: int, targe
     st.subheader("☕ 退休終局與提領反推")
     st.caption("＊通膨率、提領率等進階參數可在側邊欄「進階參數」中調整（預設：通膨 2%、提領率 4%）")
 
-        # ── 情境 A ──
+    # ── 情境 A ──
     st.markdown("**📈 情境 A：若工作幾年後退休？**")
-        hc_years = st.number_input("工作年限（年）", min_value=1, max_value=40,
+    hc_years = st.number_input("工作年限（年）", min_value=1, max_value=40,
                                 value=hc_years_default, key="lc_hc_years")
-
 
     fa = fc_total
     for _ in range(hc_years):
@@ -1051,7 +1050,7 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years_default: int, targe
 
     st.write("")
 
-        # ── 情境 B ──
+    # ── 情境 B ──
     st.markdown("**🎯 情境 B：反推想月領幾萬的退休金？**")
     target_monthly_wan = st.number_input("目標月領（萬）", min_value=1, max_value=100,
                                          value=int(target_monthly_default // 10_000), key="lc_target_wan")
@@ -1070,7 +1069,6 @@ def render_tab_lifecycle(port: dict, base_m: float, hc_years_default: int, targe
             if y > 0:
                 cf = cf * 1.08 + base_m * 12
             h_r = max(0, base_m * 12 * effective_years - base_m * 12 * y)
-
             e_g = ((cf + h_r) * target_k / 100) / cf * 100 if cf > 0 else 0
             gp.append({"年": f"第 {y} 年", "預估資產(萬)": f"{cf/10000:,.0f}", "應有曝險": f"{e_g:.1f}%"})
         st.table(pd.DataFrame(gp))
