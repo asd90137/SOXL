@@ -892,7 +892,7 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
     if rows:
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     else:
-        st.caption("尚無美股持倉資料（請確認「交易紀錄」或「ETF槓桿設定」分頁）。")
+        st.caption("尚無美股持倉資料（請確認「Trades」或「Leverage」分頁是否有正確填寫）。")
 
     st.write("---")
     st.subheader("🅿️ 資金停泊區")
@@ -1263,8 +1263,8 @@ def main():
         st.sidebar.warning("⚠️ 未設定 FUGLE_API_KEY，台股報價將使用 yfinance")
 
     # ── 台股資料 ──
-    df_tw_trades   = read_gsheets(conn, settings["tw_url"], worksheet="交易紀錄") if conn else pd.DataFrame()
-    df_tw_settings = read_gsheets(conn, settings["tw_url"], worksheet="參數設定") if conn else pd.DataFrame()
+    df_tw_trades   = read_gsheets(conn, settings["tw_url"], worksheet="Trades") if conn else pd.DataFrame()
+    df_tw_settings = read_gsheets(conn, settings["tw_url"], worksheet="Settings") if conn else pd.DataFrame()
     tw_kv = parse_kv_settings(df_tw_settings)
     base_m_wan = get_kv_float(tw_kv, "基準定額", default=CONFIG.DEFAULT_BASE_M_WAN)
     cash_wan   = get_kv_float(tw_kv, "現金部位", "現金", default=CONFIG.DEFAULT_CASH_WAN)
@@ -1280,11 +1280,11 @@ def main():
     tw_trade = parse_tw_trades(df_tw_trades)
 
     # ── 美股資料 ──
-    df_us_trades   = read_gsheets(conn, settings["us_url"], worksheet="交易紀錄") if conn else pd.DataFrame()
-    df_us_settings = read_gsheets(conn, settings["us_url"], worksheet="參數設定") if conn else pd.DataFrame()
-    df_us_etf      = read_gsheets(conn, settings["us_url"], worksheet="ETF槓桿設定") if conn else pd.DataFrame()
-    df_us_grid     = read_gsheets(conn, settings["us_url"], worksheet="網格策略") if conn else pd.DataFrame()
-    df_us_parking  = read_gsheets(conn, settings["us_url"], worksheet="資金停泊") if conn else pd.DataFrame()
+    df_us_trades   = read_gsheets(conn, settings["us_url"], worksheet="Trades") if conn else pd.DataFrame()
+    df_us_settings = read_gsheets(conn, settings["us_url"], worksheet="Settings") if conn else pd.DataFrame()
+    df_us_etf      = read_gsheets(conn, settings["us_url"], worksheet="Leverage") if conn else pd.DataFrame()
+    df_us_grid     = read_gsheets(conn, settings["us_url"], worksheet="Grid") if conn else pd.DataFrame()
+    df_us_parking  = read_gsheets(conn, settings["us_url"], worksheet="Parking") if conn else pd.DataFrame()
 
     us_kv = parse_kv_settings(df_us_settings)
     us_cash_usd = get_kv_float(us_kv, "可用現金", "現金", default=0.0)
