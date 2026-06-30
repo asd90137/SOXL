@@ -478,6 +478,64 @@ def compute_portfolio(tw_trade: dict, us_live: dict,
 
         fc_total_twd=fc_total_twd, exp_total_twd=exp_total_twd, pct_total=pct_total,
     )
+def detect_phase(total_asset_twd: float, annual_expense_twd: float) -> dict:
+    """根據 總資產 ÷ 年支出 倍數判斷投資階段"""
+    multiple = (total_asset_twd / annual_expense_twd) if annual_expense_twd > 0 else 0.0
+    if multiple < 20:
+        return dict(phase=1, phase_name="🌱 第一階段：累積期",
+                    goal_multiple=20, goal_value=annual_expense_twd * 20,
+                    current_multiple=multiple, cash_lo=0.0, cash_hi=30.0)
+    elif multiple < 50:
+        return dict(phase=2, phase_name="🛬 第二階段：滑行期",
+                    goal_multiple=50, goal_value=annual_expense_twd * 50,
+                    current_multiple=multiple, cash_lo=30.0, cash_hi=50.0)
+    else:
+        return dict(phase=3, phase_name="🏖️ 第三階段：自由期",
+                    goal_multiple=None, goal_value=None,
+                    current_multiple=multiple, cash_lo=50.0, cash_hi=100.0)
+
+
+def compute_phase1_nav(total_asset_twd: float, cash_twd: float,
+                       annual_expense_twd: float) -> dict:
+    """
+    全階段自動導航系統（支援累積期、滑行期、自由期動態現金水位）。
+    """
+    # 1. 計算目前的資產倍數
+    multiple = (total_asset_twd / annual_expense_twd) if annual_expense_twd > 0 else 0.0
+
+    # 2. 根據目前倍數，動態插值計算「目標現金比」
+    if multiple <= 20:
+        # 🌱 第一階段 (0~20x)：現金比 0% ~ 30%
+        target_cash_ratio = (multiple / 20.0) * 0.30
+    elif multiple <= 50:
+        # 🛬 第二階段 (20~50x)：現金比 30% ~ 50%
+        target_cash_ratio = 0.30 + ((multiple - 20.0) / 30.0) * 0.20
+    else:
+        # 🏖️ 第三階段 (50x+)：進入自由期，現金比嚴格固定在 50%
+        target_cash_ratio = 0.50
+
+    # 3. 現金狀態判定
+    current_cash_ratio = cash_twd / total_asset_twd if total_asset_twd > 0 else 0.0
+    is_sufficient = current_cash_ratio >= target_cash_ratio
+
+    # 4. 系統鎖定邏輯 (跨 rerun 保持基準額)
+    prev_status = st.session_state.get("p1_status", "未鎖定")
+    if is_sufficient:
+        if prev_status != "鎖定扣款中":
+            # 首次跨越「現金充裕」門檻時鎖定新基數
+            st.session_state["p1_base_amount"] = round(cash_twd / 50, 0)
+        st.session_state["p1_status"] = "鎖定扣款中"
+    else:
+        st.session_state["p1_status"] = "停扣蓄水中"
+        st.session_state["p1_base_amount"] = 0.0
+
+    return dict(
+        target_cash_ratio=target_cash_ratio,
+        current_cash_ratio=current_cash_ratio,
+        is_sufficient=is_sufficient,
+        base_amount=st.session_state.get("p1_base_amount", 0.0),
+        status=st.session_state.get("p1_status", "未鎖定"),
+    )                       
 
 # ──────────────────────────────────────────
 # ⑤ UI 元件層
@@ -498,7 +556,8 @@ def render_price_freshness(source: str, time_str: str, age_min: float, session: 
 
 def render_tab_tw(tw_trade: dict, port: dict, p_tw_curr: float, p_tw_yest: float,
                   base_m: float, loan1: float, loan2: float, cash_twd: float,
-                  tw_price: dict = None):
+                  tw_price: dict = None, phase_info: dict = None,
+                  nav_info: dict = None, birthday=None):
     """Tab 1 台股完整 UI"""
     # 報價來源 caption（放在 Tab1 內部頂端）
     if tw_price:
@@ -530,68 +589,129 @@ def render_tab_tw(tw_trade: dict, port: dict, p_tw_curr: float, p_tw_yest: float
 
     st.divider()
 
-    # --- 雙引擎戰略 ---
-    st.subheader("🚨 雙引擎戰略")
-    roi_pct = roi * 100
-
-    # 動態基準
-    if roi_pct >= 0:
-        adj_pct = min(roi_pct, 20.0)
-        dynamic_m = max(base_m * (1 - adj_pct/100), base_m * 0.8)
-        adj_str = f"降 {adj_pct:.1f}% (獲利調節)"
-    else:
-        adj_pct = min(abs(roi_pct) * 2, 100.0)
-        dynamic_m = min(base_m * (1 + adj_pct/100), base_m * 2.0)
-        adj_str = f"升 {adj_pct:.1f}% (虧損加碼)"
-
-    # 回款日
+    # ── 投資階段儀表板 ──
+    roi_pct  = roi * 100
     today_d  = datetime.today().date()
     dca_date = next_first_wednesday(today_d)
     is_dca   = (today_d == dca_date)
 
-    # 狙擊
+    ph = phase_info or {}
+    nv = nav_info or {}
+    status      = nv.get("status", "未鎖定")
+    base_amount = nv.get("base_amount", 0.0)
+    target_cr   = nv.get("target_cash_ratio", 0.0)
+    current_cr  = nv.get("current_cash_ratio", 0.0)
+    multiple    = ph.get("current_multiple", 0.0)
+    goal_mul    = ph.get("goal_multiple") or 50
+
     sniper_mult, sniper_label = sniper_signal(daily_pct)
-    sniper_m = dynamic_m * sniper_mult
 
-    # 最終行動
-    if is_dca and sniper_m > 0:
-        final_amt    = max(dynamic_m, sniper_m)
-        action_label = "🔥 定額與狙擊撞日 (擇高投入)"
-    elif is_dca:
-        final_amt    = dynamic_m
-        action_label = "📅 執行每月動態定額"
-    elif sniper_m > 0:
-        final_amt    = sniper_m
-        action_label = f"🎯 執行階梯狙擊 ({sniper_label})"
+    # ── 階段進度條 ──
+    st.subheader("🗺️ 投資階段儀表板")
+
+    # 動態判斷當前階段與文案
+    if multiple < 20:
+        stage_name = "🌱 當前階段：累積期"
+        status_text = f"🎯 距離滑行期 (20x) 還差 **{20 - multiple:.1f}x**"
+    elif multiple < 50:
+        stage_name = "🛬 當前階段：滑行期"
+        status_text = f"✅ 已超越累積期 **{multiple - 20:.1f}x** ｜ 🎯 距自由期 (50x) 還差 **{50 - multiple:.1f}x**"
     else:
-        final_amt    = 0
-        action_label = "觀望不動"
+        stage_name = "🏖️ 當前階段：自由期"
+        status_text = f"🎉 已完全通關！超越自由期門檻 **{multiple - 50:.1f}x**"
 
+    # 只顯示一個乾淨的大指標
+    st.metric(stage_name, f"{multiple:.1f}x")
+    st.markdown(f"*{status_text}*")
+
+    overall_prog = min(multiple / 50, 1.0)
+    st.progress(overall_prog)
+    st.caption(
+        f"整體進度 **{multiple:.1f}x / 50x**（{overall_prog*100:.0f}%）｜"
+        f"現金目標比 **{ph.get('cash_lo', 0):.0f}%～{ph.get('cash_hi', 0):.0f}%**"
+    )
+
+
+
+    # ── 生日再平衡警報 ──
+    if birthday:
+        if today_d.month == birthday.month and today_d.day == birthday.day:
+            if current_cr < target_cr * 0.8:
+                gap = target_cr * port["fc_total_twd"] - cash_twd
+                shares_to_sell = gap / p_tw_curr if p_tw_curr > 0 else 0
+                st.error(
+                    f"🎂 **生日再平衡警報！** "
+                    f"現金比 {current_cr*100:.1f}% 低於目標八折（{target_cr*100*0.8:.1f}%）｜"
+                    f"建議賣出 {CONFIG.TICKER_TW} 約 **NT$ {gap:,.0f}**（{shares_to_sell:,.0f} 股）補足現金缺口"
+                )
+            else:
+                st.success(
+                    f"🎂 生日快樂！現金比 {current_cr*100:.1f}% ≥ 目標 {target_cr*100:.1f}%，無需再平衡。"
+                )
+
+    st.divider()
+
+    # ── 執行引擎 ──
+    st.subheader("🚨 自動導航執行引擎")
     st.info("💡 **資金鐵則：** 帳戶請隨時鎖定 6 倍現金流，作為戰略預備金。")
+
+    if status == "鎖定扣款中":
+        sniper_m = base_amount * sniper_mult
+        if is_dca and sniper_m > 0:
+            final_amt    = max(base_amount, sniper_m)
+            action_label = "🔥 定額與狙擊撞日（擇高投入）"
+        elif is_dca:
+            final_amt    = base_amount
+            action_label = "📅 執行月度定額（cash ÷ 50）"
+        elif sniper_m > 0:
+            final_amt    = sniper_m
+            action_label = f"🎯 執行階梯狙擊（{sniper_label}）"
+        else:
+            final_amt    = 0
+            action_label = "☕ 觀望（非扣款日且無大跌）"
+    else:
+        sniper_m     = 0.0
+        final_amt    = 0.0
+        action_label = "🔴 停扣蓄水中"
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.markdown("#### 📅 引擎一：動態定額")
+        st.markdown("#### 💧 引擎一：現金比例導航")
+        cr_tag = "🟢" if current_cr >= target_cr else "🔴"
+        st.write(f"**目標現金比：** {target_cr*100:.1f}%")
+        st.write(f"**目前現金比：** {cr_tag} {current_cr*100:.1f}%（差 {(current_cr - target_cr)*100:+.1f}%）")
         st.write(f"**下次回款日：** {dca_date} {'(🟢 今日!)' if is_dca else ''}")
-        st.write(f"**庫存總損益：** {roi_pct:+.2f}%")
-        st.write(f"**調整幅度：** {adj_str}")
-        st.metric("當月動態基準", f"NT$ {dynamic_m:,.0f}")
+        s_color = "🟢" if status == "鎖定扣款中" else "🔴"
+        st.markdown(f"**系統狀態：** {s_color} **{status}**")
+        st.metric("鎖定基準額（cash ÷ 50）", f"NT$ {base_amount:,.0f}")
 
     with col2:
         st.markdown("#### 🎯 引擎二：階梯狙擊")
         st.write(f"**今日漲跌幅：** {daily_pct:+.2f}%")
         st.write(f"**觸發位階：** {sniper_label}")
-        st.write("**加碼公式：** 動態基準 × 倍數")
+        st.write(f"**加碼公式：** 基準額 × {sniper_mult:.2f}x")
         st.metric("今日狙擊金額", f"NT$ {sniper_m:,.0f}")
 
     with col3:
         st.markdown("#### 🚀 今日最終行動指示")
-        if final_amt > 0:
+        if status != "鎖定扣款中":
+            # 精確計算缺額：因為存入現金會同時增加總資產(分母)，需使用精確推導公式
+            if target_cr < 1.0:
+                shortfall = (target_cr * port["fc_total_twd"] - cash_twd) / (1 - target_cr)
+            else:
+                shortfall = 0
+                
+            st.warning(
+                f"現金比 **{current_cr*100:.1f}%** 低於目標 **{target_cr*100:.1f}%**\n\n"
+                f"🔴 停扣蓄水中，持續存入薪資 (約缺 **NT$ {max(0, shortfall):,.0f}**)，現金比達標後系統自動解鎖"
+            )
+        elif final_amt > 0:
             st.success(f"**{action_label}**")
             st.metric("建議投入本金", f"NT$ {final_amt:,.0f}")
-            st.metric("換算購買股數", f"約 {(final_amt/p_tw_curr):,.0f} 股" if p_tw_curr > 0 else "0 股")
+            st.metric("換算購買股數", f"約 {(final_amt / p_tw_curr):,.0f} 股" if p_tw_curr > 0 else "0 股")
         else:
-            st.warning("☕ 目前未達狙擊標準且非扣款日，請保留現金觀望。")
+            st.info("☕ 現金充足，今日非扣款日且無大跌，靜待機會。")
 
     st.divider()
 
@@ -923,8 +1043,37 @@ def render_tab_us(us_live: dict, port: dict, grid: dict,
 
 def render_tab_lifecycle(port: dict, base_m: float, hc_years_default: int, target_k: float,
                          target_monthly_default: float, inflation_rate: float, withdrawal_rate: float,
-                         usd_twd: float):
+                         usd_twd: float, phase_info: dict = None):
     """Tab 3 生命周期 & 退休"""
+    # ── 投資階段進度條 ──
+    if phase_info:
+        ph = phase_info
+        multiple = ph.get("current_multiple", 0.0)
+        
+        # 動態判斷當前階段與文案
+        if multiple < 20:
+            stage_name = "🌱 當前階段：累積期"
+            status_text = f"🎯 距離滑行期 (20x) 還差 **{20 - multiple:.1f}x**"
+        elif multiple < 50:
+            stage_name = "🛬 當前階段：滑行期"
+            status_text = f"✅ 已超越累積期 **{multiple - 20:.1f}x** ｜ 🎯 距自由期 (50x) 還差 **{50 - multiple:.1f}x**"
+        else:
+            stage_name = "🏖️ 當前階段：自由期"
+            status_text = f"🎉 已完全通關！超越自由期門檻 **{multiple - 50:.1f}x**"
+            
+        st.metric(stage_name, f"{multiple:.1f}x")
+        st.markdown(f"*{status_text}*")
+
+        prog = min(multiple / 50, 1.0)
+        st.progress(prog)
+        st.caption(
+            f"整體進度 **{multiple:.1f}x / 50x**（{prog*100:.0f}%）｜"
+            f"現金目標比 **{ph.get('cash_lo',0):.0f}%～{ph.get('cash_hi',0):.0f}%**"
+        )
+        st.divider()
+
+
+
     st.subheader("⚖️ 生命周期曝險透視")
 
     val_tw  = port["val_tw_twd"]
@@ -1207,15 +1356,16 @@ def render_sidebar() -> dict:
         inflation_rate  = st.number_input("8. 預估通膨 (%)",       value=2.0) / 100
         withdrawal_rate = st.number_input("9. 安全提領率 (%)",     value=4.0) / 100
 
-    # 5 和 7 改在 Tab3 內填寫，這裡給預設值讓 main() 傳入
     return dict(
         loan1=loan1, loan2=loan2, pmt1=pmt1, pmt2=pmt2,
         usd_twd=usd_twd, target_k=target_k,
         inflation_rate=inflation_rate,
         withdrawal_rate=withdrawal_rate,
-        # hc_years 和 target_monthly 已移至 Tab3，這裡給佔位預設值
         hc_years=11,
         target_monthly=100_000,
+        # annual_expense / birthday 由 Sheets L2 / M2 讀取，在 main() 注入
+        annual_expense=600_000,
+        birthday=None,
     )
 
     st.sidebar.divider()
@@ -1260,6 +1410,32 @@ def main():
                 .sub-title { font-size: 17px !important; letter-spacing: 2px !important; } 
                 .dash { display: none !important; }
             }
+
+            /* 👇👇👇 新增這段：當螢幕寬度大於 768px（電腦版）時，全局放大字體 👇👇👇 */
+            @media (min-width: 769px) {
+                /* 1. 放大一般文字與提示框 (st.write, st.warning, st.info) */
+                .stMarkdown p, .stMarkdown li, div[data-testid="stAlert"] p {
+                    font-size: 18px !important;
+                    line-height: 1.6 !important;
+                }
+                /* 2. 放大 Metric 指標的標題 (例如：目標現金比) */
+                [data-testid="stMetricLabel"] p {
+                    font-size: 18px !important;
+                }
+                /* 3. 放大 Metric 指標的數值 */
+                [data-testid="stMetricValue"] div {
+                    font-size: 38px !important;
+                }
+                /* 4. 放大 Metric 的漲跌幅 (Delta) */
+                [data-testid="stMetricDelta"] div {
+                    font-size: 18px !important;
+                }
+                /* 5. 放大 Expander (展開清單) 的標題 */
+                .streamlit-expanderHeader p {
+                    font-size: 18px !important;
+                }
+            }
+            /* 👆👆👆 新增結束 👆👆👆 */
         </style>
 
         <div class="war-room-title">
@@ -1293,15 +1469,35 @@ def main():
         if not df_tw_raw.empty:
             st.sidebar.success("✅ 台股帳本同步成功！")
             try:
-                while len(df_tw_raw.columns) < 11:
+                while len(df_tw_raw.columns) < 13:          # 擴充至 M 欄（index 12）
                     df_tw_raw[f"_pad_{len(df_tw_raw.columns)}"] = np.nan
-                vj = to_float(df_tw_raw.iloc[0, 9])
-                vk = to_float(df_tw_raw.iloc[0, 10])
+                vj = to_float(df_tw_raw.iloc[0, 9])         # J2 每月(萬)
+                vk = to_float(df_tw_raw.iloc[0, 10])        # K2 現金(萬)
+                vl = to_float(df_tw_raw.iloc[0, 11])        # L2 年支出（萬）
+                vm = str(df_tw_raw.iloc[0, 12]).strip()     # M2 生日 MM/DD
                 if vj: base_m_wan = vj
                 if vk: cash_wan   = vk
             except Exception as e:
                 st.sidebar.warning(f"⚠️ 參數欄位解析失敗，用預設值。({e})")
-            st.sidebar.info(f"🏦 自動載入台股參數：\n基準定額 **{base_m_wan:,.0f} 萬** | 現金 **{cash_wan:,.0f} 萬**")
+                vl, vm = 0.0, ""
+
+            # 注入 annual_expense
+            if vl > 0:
+                params["annual_expense"] = vl * 10_000
+            # 注入 birthday（格式 MM/DD，例如 01/26）
+            if vm and vm not in ("", "nan", "None"):
+                try:
+                    bm, bd = vm.replace("-", "/").split("/")
+                    params["birthday"] = datetime(2000, int(bm), int(bd)).date()
+                except Exception:
+                    params["birthday"] = None
+
+            st.sidebar.info(
+                f"🏦 自動載入台股參數：\n"
+                f"每月 **{base_m_wan:,.0f} 萬** ｜ 現金 **{cash_wan:,.0f} 萬** ｜ "
+                f"年支出 **{params['annual_expense']/10000:,.0f} 萬** ｜ "
+                f"生日 **{params.get('birthday') or '未設定'}**"
+            )
 
     base_m    = base_m_wan * 10_000
     cash_twd  = cash_wan   * 10_000
@@ -1393,13 +1589,19 @@ def main():
     cash_parking=cash_parking,
     )
 
+    # ── 投資階段判定 ──
+    annual_expense = params.get("annual_expense", 600_000)
+    phase_info = detect_phase(port["fc_total_twd"], annual_expense)
+    nav_info   = compute_phase1_nav(port["fc_total_twd"], cash_twd, annual_expense)
+
     # ── 渲染四個 Tab ──
     tab1, tab2, tab3, tab4 = st.tabs(["💰 台股", "💵 美股", "🛬 生命周期 & 退休", "🏭 南亞科"])
 
     with tab1:
         render_tab_tw(tw_trade, port, p_tw_curr, p_tw_yest,
                       base_m, params["loan1"], params["loan2"], cash_twd,
-                      tw_price=tw_price)
+                      tw_price=tw_price, phase_info=phase_info,
+                      nav_info=nav_info, birthday=params.get("birthday"))
 
     with tab2:
         render_tab_us(us_live, port, grid, us_cash_usd, params["usd_twd"], us_session, cash_parking)
@@ -1410,6 +1612,7 @@ def main():
             params["hc_years"], params["target_k"],
             params["target_monthly"], params["inflation_rate"],
             params["withdrawal_rate"], params["usd_twd"],
+            phase_info=phase_info,
         )
         
     with tab4:
